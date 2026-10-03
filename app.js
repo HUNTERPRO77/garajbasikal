@@ -458,7 +458,7 @@ if (!configured) {
     }
     if (tab === "records") {
       view.innerHTML = `<section class="section-card"><div class="card-head"><div><h2>Rekod Pinjaman</h2><p class="muted">Pemulangan manual hanya untuk penjaga/admin.</p></div>
-        ${staff.role === "admin" ? '<button id="exportCsv" class="btn primary">Eksport Excel</button>' : ""}</div>
+        ${staff.role === "admin" ? '<button id="exportExcel" class="btn primary">Eksport Excel</button>' : ""}</div>
         <div class="searchbar"><input id="recordSearch" placeholder="Cari matrik / nama / basikal"><select id="recordFilter"><option value="">Semua</option><option value="active">Sedang dipinjam</option><option value="late">Lewat</option><option value="done">Selesai</option></select><select id="sessionFilter"><option value="">Semua sesi</option><option>Sesi 1</option><option>Sesi 2</option></select><button id="refreshStaff" class="btn secondary">Segar</button></div>
         <div class="table-wrap"><table id="recordsTable"><thead><tr><th>Tarikh</th><th>Matrik</th><th>Nama</th><th>Basikal</th><th>Sesi</th><th>Ambil</th><th>Hantar</th><th>Status</th><th>Catatan Lewat/Hukuman</th><th>Catatan Manual</th><th>Tindakan</th></tr></thead><tbody>
         ${records.map((record) => `<tr data-search="${escapeHtml(`${record.matrix} ${record.name} ${record.bike_no}`.toLowerCase())}" data-status="${record.returned_at ? record.late ? "late" : "done" : "active"}" data-session="${escapeHtml(record.session_name)}">
@@ -476,7 +476,7 @@ if (!configured) {
       $("#recordSearch")?.addEventListener("input", filterRecords);
       $("#recordFilter")?.addEventListener("input", filterRecords);
       $("#sessionFilter")?.addEventListener("input", filterRecords);
-      $("#exportCsv")?.addEventListener("click", () => {
+      $("#exportExcel")?.addEventListener("click", () => {
         exportExcel(data).catch((error) => alert(`Eksport Excel gagal: ${error.message}`));
       });
       $$("[data-manual-return]").forEach((button) => button.addEventListener("click", async () => {
