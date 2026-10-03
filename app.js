@@ -3,7 +3,6 @@ import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./supabase-config.js";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-const staffAuthEmail = (username) => `${username.toLowerCase()}@staff.garajbasikal.invalid`;
 document.addEventListener("error", (event) => {
   const image = event.target;
   if (image instanceof HTMLImageElement && !image.dataset.fallback) {
@@ -558,7 +557,7 @@ if (!configured) {
           <label>Tempoh tahanan (hari)</label><input name="suspension_days" type="number" min="1" max="30" value="${s.suspension_days}" required>
           <label>Peringatan 10 minit</label><select name="warning_10min"><option value="true" ${s.warning_10min ? "selected" : ""}>Aktif</option><option value="false" ${!s.warning_10min ? "selected" : ""}>Tutup</option></select>
           <label>Peringatan 5 minit</label><select name="warning_5min"><option value="true" ${s.warning_5min ? "selected" : ""}>Aktif</option><option value="false" ${!s.warning_5min ? "selected" : ""}>Tutup</option></select></div>
-          <button class="btn primary">Simpan Tetapan</button></form><hr><h3>Tukar Kata Laluan</h3><form id="passwordForm" class="grid2"><div><label>Kata laluan lama</label><input type="password" name="old_password" required></div><div><label>Kata laluan baharu</label><input type="password" name="new_password" minlength="10" required></div><button class="btn primary">Tukar Kata Laluan</button></form><hr><button id="backupButton" class="btn secondary">Eksport rekod CSV</button><p class="muted">Backup automatik dan pemulihan point-in-time tidak termasuk dalam Supabase Free; eksport CSV berkala disyorkan.</p></section>`;
+          <button class="btn primary">Simpan Tetapan</button></form><hr><h3>Tukar Kata Laluan</h3><form id="passwordForm" class="grid2"><div><label>Kata laluan baharu (12-72 aksara)</label><input type="password" name="new_password" minlength="12" maxlength="72" required autocomplete="new-password"></div><button class="btn primary">Tukar Kata Laluan</button></form><hr><button id="backupButton" class="btn secondary">Eksport rekod CSV</button><p class="muted">Backup automatik dan pemulihan point-in-time tidak termasuk dalam Supabase Free; eksport CSV berkala disyorkan.</p></section>`;
       $("#settingsForm").addEventListener("submit", async (event) => {
         event.preventDefault();
         const form = new FormData(event.currentTarget);
@@ -585,8 +584,6 @@ if (!configured) {
       $("#passwordForm").addEventListener("submit", async (event) => {
         event.preventDefault();
         const fields = Object.fromEntries(new FormData(event.currentTarget));
-        const { error: verifyError } = await supabase.auth.signInWithPassword({ email: staffAuthEmail(staff.username), password: fields.old_password });
-        if (verifyError) { alert("Kata laluan lama salah."); return; }
         const { error } = await supabase.auth.updateUser({ password: fields.new_password });
         alert(error?.message || "Kata laluan berjaya ditukar.");
         if (!error) event.currentTarget.reset();
@@ -653,12 +650,17 @@ if (!configured) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const username = String(form.get("username")).trim().toLowerCase();
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: staffAuthEmail(username),
-      password: String(form.get("password")),
+    const result = await api("staff_login", { username, password: String(form.get("password")) });
+    if (!result.ok || !result.access_token || !result.refresh_token) {
+      showMessage($("#loginResult"), result.message || "Username atau kata laluan tidak sah.", false);
+      return;
+    }
+    const { error: sessionError } = await supabase.auth.setSession({
+      access_token: result.access_token,
+      refresh_token: result.refresh_token,
     });
-    if (error || !data.session) {
-      showMessage($("#loginResult"), error?.message || "Log masuk gagal.", false);
+    if (sessionError) {
+      showMessage($("#loginResult"), sessionError.message, false);
       return;
     }
     try {
