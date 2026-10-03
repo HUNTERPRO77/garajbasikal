@@ -368,8 +368,8 @@ if (!configured) {
         <div class="stat"><span>Hukuman aktif</span><b>${data.punishments.filter((row) => new Date(row.until) > new Date()).length}</b></div>
       </div>
       <nav class="tabs" id="staffTabs">
-        ${staff.role === "admin" ? '<button data-tab="overview" class="tab active">Sistem</button><button data-tab="bikes" class="tab">Basikal</button><button data-tab="borrowers" class="tab">Peminjam</button>' : ""}
-        <button data-tab="records" class="tab ${staff.role === "penjaga" ? "active" : ""}">Rekod</button>
+        ${staff.role === "admin" ? '<button data-tab="overview" class="tab">Sistem</button><button data-tab="bikes" class="tab">Basikal</button><button data-tab="borrowers" class="tab">Peminjam</button>' : ""}
+        <button data-tab="records" class="tab active">Rekod</button>
         <button data-tab="notes" class="tab">Catatan</button>
         ${staff.role === "admin" ? '<button data-tab="punishment" class="tab">Hukuman</button><button data-tab="stats" class="tab">Statistik</button><button data-tab="audit" class="tab">Audit Log</button><button data-tab="settings" class="tab">Tetapan</button>' : ""}
       </nav>
@@ -382,7 +382,7 @@ if (!configured) {
       $$("#staffTabs .tab").forEach((tab) => tab.classList.toggle("active", tab === button));
       renderTab(button.dataset.tab, data, staff);
     }));
-    renderTab(staff.role === "admin" ? "overview" : "records", data, staff);
+    renderTab("records", data, staff);
   }
 
   function renderTab(tab, data, staff) {
