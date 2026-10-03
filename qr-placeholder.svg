@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="220" viewBox="0 0 320 220">
+  <rect width="320" height="220" rx="18" fill="#edf2f8"/>
+  <path d="M132 77h20v20h-20zM168 77h20v20h-20zM132 113h20v20h-20zM168 113h20v20h-20z" fill="#9aa8bc"/>
+  <text x="160" y="164" text-anchor="middle" font-family="Arial,sans-serif" font-size="15" fill="#40516b">Jana QR selepas deploy</text>
+</svg>

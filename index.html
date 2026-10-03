@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ms">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#162a55">
+  <title>Garaj Basikal</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <section class="hero">
+    <div class="wrap">
+      <header class="brand">
+        <div class="brand-icon" aria-hidden="true">🚲</div>
+        <div><h1 id="garageName">Garaj Basikal</h1><p>Sistem Rekod Keluar & Masuk Basikal</p></div>
+      </header>
+      <main id="publicPage" class="card public-card">
+        <div id="publicNotice" class="alert info">Menyambung ke sistem...</div>
+        <section id="individualSection" hidden>
+          <h2>Pinjaman Individu</h2>
+          <div id="sessionBox" class="banner">Semak sesi...</div>
+          <div id="capacityBox" class="banner">Semak kapasiti...</div>
+          <div id="currentLoan"></div>
+          <form id="borrowForm">
+            <div id="individualFields">
+              <label for="matrix">No. Matrik</label><input id="matrix" name="matrix" maxlength="50" required autocomplete="off">
+              <label for="borrowerName">Nama Penuh</label><input id="borrowerName" name="name" maxlength="120" required autocomplete="name">
+              <label for="bikeInput">No. Basikal</label><input id="bikeInput" name="bike_no" maxlength="3" required placeholder="B01">
+            </div>
+            <button id="checkoutButton" class="btn primary full">Rekod Ambil Basikal</button>
+          </form>
+          <div id="returnFallback" class="confirm-card" hidden>
+            <h3>🔎 Pinjaman aktif ditemui</h3><div id="returnPreview"></div>
+            <button id="confirmIndividualReturn" class="btn primary full" type="button">Ya, Hantar Basikal</button>
+            <button id="cancelIndividualReturn" class="btn secondary full" type="button">Batal</button>
+          </div>
+        </section>
+        <section id="groupSection" hidden>
+          <h2>Pinjaman Berkumpulan</h2>
+          <p>Isi nama pensyarah, kelas atau kelab, dan jumlah basikal. Basikal tersedia akan diperuntukkan automatik.</p>
+          <div id="groupCapacityBox" class="banner">Semak basikal tersedia...</div>
+          <form id="groupLoanForm">
+            <label for="lecturerName">Nama Pensyarah</label><input id="lecturerName" name="lecturer_name" maxlength="100" required autocomplete="name">
+            <label for="classClub">Kelas atau Kelab</label><input id="classClub" name="class_club" maxlength="120" required placeholder="Contoh: 4 Bestari / Kelab Robotik">
+            <label for="groupQuantity">Jumlah Basikal</label><input id="groupQuantity" name="quantity" type="number" min="1" max="28" step="1" required>
+            <button class="btn primary full">Semak / Rekod Pinjaman Berkumpulan</button>
+          </form>
+          <div id="groupResult" aria-live="polite"></div>
+          <p class="help">Pinjaman berkumpulan boleh dibuat di luar sesi dan masa ambil/hantar tidak direkod. Scan QR berkumpulan yang sama untuk menghantar. Jika peranti tidak dikesan, isi semula tiga butiran pinjaman untuk pengesahan.</p>
+        </section>
+        <section id="landingSection" hidden>
+          <h2>Scan QR Garaj / Basikal</h2><p>Peminjam tidak perlu akaun. Jana dan pasang QR production selepas laman statik diterbitkan.</p>
+          <img class="qr-large" src="qr-placeholder.svg" data-qr-src="qr_garaj_basikal.png" alt="QR Garaj">
+        </section>
+        <div id="publicResult" aria-live="polite"></div>
+      </main>
+      <section id="sessionsCard" class="card">
+        <h3>Jadual Sesi</h3><div class="two">
+          <div><b>Sesi 1</b><span id="session1Hours">5:15 PM–6:00 PM</span></div>
+          <div><b>Sesi 2</b><span id="session2Hours">6:05 PM–6:50 PM</span></div>
+        </div><p class="muted">Maksimum 28 peminjam aktif bagi setiap sesi. Pinjaman berkumpulan tidak terikat pada sesi.</p>
+      </section>
+    </div>
+  </section>
+
+  <section id="staffSection" class="staff-section">
+    <div class="wrap">
+      <div id="loginCard" class="login-card">
+        <h2>🔐 Portal Admin & Penjaga</h2>
+        <p class="muted">Akaun staf perlu dijemput oleh Admin. Tiada pendaftaran staf terbuka.</p>
+        <form id="loginForm">
+          <label for="loginEmail">E-mel</label><input id="loginEmail" name="email" type="email" required autocomplete="username">
+          <label for="loginPassword">Kata Laluan</label><input id="loginPassword" name="password" type="password" required autocomplete="current-password">
+          <button class="btn primary full">Log Masuk</button>
+        </form>
+        <button id="resetPasswordButton" class="link-button" type="button">Hantar pautan set semula kata laluan</button>
+        <div id="loginResult" aria-live="polite"></div>
+      </div>
+      <div id="credentialCard" class="login-card" hidden>
+        <h2>Tetapkan Kata Laluan</h2>
+        <p class="muted">Pilih kata laluan sekurang-kurangnya 12 aksara untuk akaun staf.</p>
+        <form id="credentialForm">
+          <label for="newPassword">Kata Laluan Baharu</label><input id="newPassword" name="password" type="password" minlength="12" required autocomplete="new-password">
+          <label for="confirmPassword">Sahkan Kata Laluan</label><input id="confirmPassword" name="confirm_password" type="password" minlength="12" required autocomplete="new-password">
+          <button class="btn primary full">Simpan Kata Laluan</button>
+        </form>
+        <div id="credentialResult" aria-live="polite"></div>
+      </div>
+      <div id="dashboard" hidden></div>
+    </div>
+  </section>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
