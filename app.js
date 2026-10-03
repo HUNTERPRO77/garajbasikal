@@ -442,17 +442,37 @@ if (!configured) {
       return;
     }
     if (tab === "bikes") {
-      view.innerHTML = `<section class="section-card"><h2>Pengurusan Basikal</h2><p class="muted">Basikal yang dipinjam tidak boleh ditukar status sehingga dipulangkan.</p>
+      view.innerHTML = `<section class="section-card"><h2>Pengurusan Basikal</h2><p class="muted">Admin boleh menukar nombor basikal apabila tidak sedang dipinjam. Sejarah pinjaman akan ikut nombor baharu; selepas tukar nombor, cetak dan ganti QR lama.</p>
         <div class="qr-grid">${data.bikes.map((bike) => `<div class="qr-item"><img src="qr-placeholder.svg" data-qr-src="qrs/${escapeHtml(bike.bike_no)}.png" alt="QR ${escapeHtml(bike.bike_no)}"><h3>${escapeHtml(bike.bike_no)}</h3>
           <span class="badge ${bike.status === "available" ? "green" : bike.status === "borrowed" ? "blue" : bike.status === "damaged" ? "red" : "gray"}">${escapeHtml(bike.status.toUpperCase())}</span>
-          <form class="bike-form" data-bike="${escapeHtml(bike.bike_no)}"><select name="status"><option value="available" ${bike.status === "available" ? "selected" : ""}>Tersedia</option><option value="damaged" ${bike.status === "damaged" ? "selected" : ""}>Rosak</option><option value="inactive" ${bike.status === "inactive" ? "selected" : ""}>Tidak digunakan</option></select>
+          <form class="bike-form" data-bike="${escapeHtml(bike.bike_no)}"><label>Nombor basikal</label><input name="new_bike_no" value="${escapeHtml(bike.bike_no)}" maxlength="20" pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,19}" title="1–20 aksara: huruf, nombor, sempang atau garis bawah" required><select name="status"><option value="available" ${bike.status === "available" ? "selected" : ""}>Tersedia</option><option value="damaged" ${bike.status === "damaged" ? "selected" : ""}>Rosak</option><option value="inactive" ${bike.status === "inactive" ? "selected" : ""}>Tidak digunakan</option></select>
           <input name="damage_note" value="${escapeHtml(bike.damage_note)}" placeholder="Catatan"><button class="btn small primary">Simpan</button></form></div>`).join("")}</div></section>`;
       $$(".bike-form").forEach((form) => form.addEventListener("submit", async (event) => {
         event.preventDefault();
         const fields = Object.fromEntries(new FormData(form));
-        const result = await api("bike_update", { bike_no: form.dataset.bike, ...fields });
+        const bikeNo = form.dataset.bike;
+        const newBikeNo = String(fields.new_bike_no).trim().toUpperCase();
+        const result = await api("bike_update", { bike_no: bikeNo, ...fields, new_bike_no: newBikeNo });
         alert(result.message);
-        if (result.ok) await loadStaff();
+        if (!result.ok) return;
+        await loadStaff();
+        if (newBikeNo !== bikeNo) {
+          try {
+            const QRCode = (await import("https://esm.sh/qrcode@1.5.4")).default;
+            const qrUrl = new URL(location.pathname, location.origin);
+            qrUrl.searchParams.set("garage", data.app_settings[0].garage_qr);
+            qrUrl.searchParams.set("bike", newBikeNo);
+            const imageUrl = await QRCode.toDataURL(qrUrl.toString(), { width: 480, margin: 2 });
+            const download = document.createElement("a");
+            download.href = imageUrl;
+            download.download = `QR_${newBikeNo}.png`;
+            download.click();
+          } catch (error) {
+            alert(`Nombor basikal telah ditukar, tetapi QR baharu gagal dijana: ${error instanceof Error ? error.message : "Ralat tidak diketahui"}. Sila jana dan cetak QR basikal ${newBikeNo} sebelum digunakan.`);
+            return;
+          }
+          alert(`QR baharu basikal ${newBikeNo} telah dimuat turun. Cetak dan gantikan pelekat QR lama sebelum basikal digunakan.`);
+        }
       }));
       return;
     }
