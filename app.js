@@ -458,12 +458,13 @@ if (!configured) {
     }
     if (tab === "records") {
       view.innerHTML = `<section class="section-card"><div class="card-head"><div><h2>Rekod Pinjaman</h2><p class="muted">Pemulangan manual hanya untuk penjaga/admin.</p></div>
-        ${staff.role === "admin" ? '<button id="exportCsv" class="btn primary">Export CSV</button>' : ""}</div>
+        ${staff.role === "admin" ? '<button id="exportCsv" class="btn primary">Eksport Excel</button>' : ""}</div>
         <div class="searchbar"><input id="recordSearch" placeholder="Cari matrik / nama / basikal"><select id="recordFilter"><option value="">Semua</option><option value="active">Sedang dipinjam</option><option value="late">Lewat</option><option value="done">Selesai</option></select><select id="sessionFilter"><option value="">Semua sesi</option><option>Sesi 1</option><option>Sesi 2</option></select><button id="refreshStaff" class="btn secondary">Segar</button></div>
-        <div class="table-wrap"><table id="recordsTable"><thead><tr><th>Tarikh</th><th>Matrik</th><th>Nama</th><th>Basikal</th><th>Sesi</th><th>Ambil</th><th>Hantar</th><th>Status</th><th>Catatan Manual</th><th>Tindakan</th></tr></thead><tbody>
+        <div class="table-wrap"><table id="recordsTable"><thead><tr><th>Tarikh</th><th>Matrik</th><th>Nama</th><th>Basikal</th><th>Sesi</th><th>Ambil</th><th>Hantar</th><th>Status</th><th>Catatan Lewat/Hukuman</th><th>Catatan Manual</th><th>Tindakan</th></tr></thead><tbody>
         ${records.map((record) => `<tr data-search="${escapeHtml(`${record.matrix} ${record.name} ${record.bike_no}`.toLowerCase())}" data-status="${record.returned_at ? record.late ? "late" : "done" : "active"}" data-session="${escapeHtml(record.session_name)}">
           <td>${fmt(record.borrowed_at)}</td><td><b>${escapeHtml(record.matrix)}</b></td><td>${escapeHtml(record.name)}</td><td>${escapeHtml(record.bike_no)}</td><td>${escapeHtml(record.session_name)}</td><td>${fmt(record.borrowed_at)}</td><td>${fmt(record.returned_at)}</td>
           <td>${record.returned_at ? record.late ? '<span class="badge red">Lewat</span>' : '<span class="badge green">Selesai</span>' : '<span class="badge blue">Aktif</span>'} ${record.manual_return ? '<span class="badge gray">Manual</span>' : ""}</td>
+          <td>${returnException(record)}</td>
           <td>${escapeHtml(record.manual_return_note || "-")}</td><td>${!record.returned_at && ["admin", "penjaga"].includes(staff.role) ? `<button class="btn small primary" data-manual-return="${record.id}">Hantar Manual</button>` : ""}</td></tr>`).join("")}
         </tbody></table></div></section>
         <section class="section-card"><h2>Pinjaman Berkumpulan</h2><p class="muted">Tiada sesi atau masa ambil/hantar direkodkan. Pemulangan boleh dibuat melalui QR atau oleh staf.</p>
@@ -475,7 +476,9 @@ if (!configured) {
       $("#recordSearch")?.addEventListener("input", filterRecords);
       $("#recordFilter")?.addEventListener("input", filterRecords);
       $("#sessionFilter")?.addEventListener("input", filterRecords);
-      $("#exportCsv")?.addEventListener("click", () => exportCsv(data));
+      $("#exportCsv")?.addEventListener("click", () => {
+        exportExcel(data).catch((error) => alert(`Eksport Excel gagal: ${error.message}`));
+      });
       $$("[data-manual-return]").forEach((button) => button.addEventListener("click", async () => {
         const note = prompt("Catatan pemulangan manual (wajib):", "Peminjam terlupa scan QR semasa menghantar basikal.");
         if (!note) return;
@@ -507,8 +510,8 @@ if (!configured) {
         const matrix = button.dataset.borrower;
         const borrower = borrowerRows.find((row) => row.matrix === matrix);
         const history = records.filter((row) => row.matrix.toLowerCase() === matrix.toLowerCase());
-        $("#borrowerHistory").innerHTML = `<h3>Sejarah ${escapeHtml(borrower.name)} (${escapeHtml(matrix)})</h3><div class="table-wrap"><table><thead><tr><th>Tarikh</th><th>Basikal</th><th>Sesi</th><th>Hantar</th><th>Status</th></tr></thead><tbody>
-          ${history.map((row) => `<tr><td>${fmt(row.borrowed_at)}</td><td>${escapeHtml(row.bike_no)}</td><td>${escapeHtml(row.session_name)}</td><td>${fmt(row.returned_at)}</td><td>${row.returned_at ? row.late ? "Lewat" : "Selesai" : "Aktif"}</td></tr>`).join("")}</tbody></table></div>`;
+        $("#borrowerHistory").innerHTML = `<h3>Sejarah ${escapeHtml(borrower.name)} (${escapeHtml(matrix)})</h3><div class="table-wrap"><table><thead><tr><th>Tarikh</th><th>Basikal</th><th>Sesi</th><th>Hantar</th><th>Status</th><th>Catatan Lewat/Hukuman</th></tr></thead><tbody>
+          ${history.map((row) => `<tr><td>${fmt(row.borrowed_at)}</td><td>${escapeHtml(row.bike_no)}</td><td>${escapeHtml(row.session_name)}</td><td>${fmt(row.returned_at)}</td><td>${row.returned_at ? row.late ? "Lewat" : "Selesai" : "Aktif"}</td><td>${returnException(row)}</td></tr>`).join("")}</tbody></table></div>`;
       }));
       return;
     }
@@ -557,7 +560,7 @@ if (!configured) {
           <label>Tempoh tahanan (hari)</label><input name="suspension_days" type="number" min="1" max="30" value="${s.suspension_days}" required>
           <label>Peringatan 10 minit</label><select name="warning_10min"><option value="true" ${s.warning_10min ? "selected" : ""}>Aktif</option><option value="false" ${!s.warning_10min ? "selected" : ""}>Tutup</option></select>
           <label>Peringatan 5 minit</label><select name="warning_5min"><option value="true" ${s.warning_5min ? "selected" : ""}>Aktif</option><option value="false" ${!s.warning_5min ? "selected" : ""}>Tutup</option></select></div>
-          <button class="btn primary">Simpan Tetapan</button></form><hr><h3>Tukar Kata Laluan</h3><form id="passwordForm" class="grid2"><div><label>Kata laluan baharu (12-72 aksara)</label><input type="password" name="new_password" minlength="12" maxlength="72" required autocomplete="new-password"></div><button class="btn primary">Tukar Kata Laluan</button></form><hr><button id="backupButton" class="btn secondary">Eksport rekod CSV</button><p class="muted">Backup automatik dan pemulihan point-in-time tidak termasuk dalam Supabase Free; eksport CSV berkala disyorkan.</p></section>`;
+          <button class="btn primary">Simpan Tetapan</button></form><hr><h3>Tukar Kata Laluan</h3><form id="passwordForm" class="grid2"><div><label>Kata laluan baharu (12-72 aksara)</label><input type="password" name="new_password" minlength="12" maxlength="72" required autocomplete="new-password"></div><button class="btn primary">Tukar Kata Laluan</button></form><hr><button id="backupButton" class="btn secondary">Eksport rekod Excel (.xlsx)</button><p class="muted">Backup automatik dan pemulihan point-in-time tidak termasuk dalam Supabase Free; eksport Excel berkala disyorkan.</p></section>`;
       $("#settingsForm").addEventListener("submit", async (event) => {
         event.preventDefault();
         const form = new FormData(event.currentTarget);
@@ -588,7 +591,9 @@ if (!configured) {
         alert(error?.message || "Kata laluan berjaya ditukar.");
         if (!error) event.currentTarget.reset();
       });
-      $("#backupButton").addEventListener("click", () => exportCsv(data));
+      $("#backupButton").addEventListener("click", () => {
+        exportExcel(data).catch((error) => alert(`Eksport Excel gagal: ${error.message}`));
+      });
     }
   }
 
@@ -608,6 +613,11 @@ if (!configured) {
     return `${dateText} ${hour}:${minute} ${period}`;
   }
 
+  function returnException(record) {
+    if (record.punishment_until) return `Tahanan kad matrik hingga ${fmt(record.punishment_until)}`;
+    return record.warning_issued ? "Amaran lewat direkodkan" : "-";
+  }
+
   function filterRecords() {
     const query = ($("#recordSearch")?.value || "").toLowerCase();
     const status = $("#recordFilter")?.value || "";
@@ -618,26 +628,93 @@ if (!configured) {
     });
   }
 
-  function exportCsv(data) {
-    const headers = ["Jenis", "ID", "Nama/Pensyarah", "Kelas/Kelab", "No. Matrik", "Basikal", "Sesi", "Tarikh Ambil", "Tarikh Hantar", "Status", "Catatan"];
+  async function exportExcel(data) {
+    const { default: ExcelJS } = await import("https://esm.sh/exceljs@4.4.0?bundle");
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "Sistem Garaj Basikal";
+    workbook.subject = "Rekod pinjaman individu dan berkumpulan";
+    workbook.created = new Date();
+    const sheet = workbook.addWorksheet("Rekod Pinjaman", {
+      views: [{ state: "frozen", ySplit: 4, showGridLines: false }],
+      pageSetup: { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
+    });
+    const headers = ["Jenis", "ID", "Nama / Pensyarah", "Kelas / Kelab", "No. Matrik", "Basikal",
+      "Sesi", "Tarikh Ambil", "Tarikh Hantar", "Status", "Catatan", "Catatan Lewat / Hukuman"];
     const rows = [
       ...data.records.map((record) => ["Individu", record.id, record.name, "", record.matrix, record.bike_no,
-        record.session_name, record.borrowed_at, record.returned_at || "", record.returned_at ? record.late ? "Lewat" : "Selesai" : "Aktif", record.manual_return_note || ""]),
+        record.session_name, fmt(record.borrowed_at), fmt(record.returned_at),
+        record.returned_at ? record.late ? "Lewat" : "Selesai" : "Aktif",
+        record.manual_return_note || "", returnException(record)]),
       ...data.group_loans.map((loan) => ["Berkumpulan", loan.id, loan.lecturer_name, loan.class_club, "",
         data.group_loan_bikes.filter((bike) => bike.group_loan_id === loan.id).map((bike) => bike.bike_no).join(", "),
-        "Luar sesi", "", "", loan.is_active ? "Aktif" : "Selesai", loan.return_note || ""]),
+        "Luar sesi", "-", "-", loan.is_active ? "Aktif" : "Selesai", loan.return_note || "", "-"]),
     ];
-    const csv = [headers, ...rows].map((row) => row.map((item) => {
-      let value = String(item ?? "");
-      if (/^[\t\r ]*[=+\-@]/.test(value)) value = `'${value}`;
-      return `"${value.replaceAll('"', '""')}"`;
-    }).join(",")).join("\r\n");
-    const url = URL.createObjectURL(new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" }));
+    const lateCount = data.records.filter((record) => record.late).length;
+    const activeCount = data.records.filter((record) => !record.returned_at).length +
+      data.group_loans.filter((loan) => loan.is_active).length;
+    const exportedAt = fmt(new Date().toISOString());
+    sheet.mergeCells(1, 1, 1, headers.length);
+    sheet.mergeCells(2, 1, 2, headers.length);
+    sheet.mergeCells(3, 1, 3, headers.length);
+    sheet.getCell("A1").value = "REKOD PINJAMAN BASIKAL";
+    sheet.getCell("A2").value = `Dieksport pada ${exportedAt}`;
+    sheet.getCell("A3").value = `Jumlah rekod: ${rows.length}   |   Lewat: ${lateCount}   |   Pinjaman aktif: ${activeCount}`;
+    sheet.addRow(headers);
+    sheet.addRows(rows);
+    sheet.columns = [
+      { width: 15 }, { width: 38 }, { width: 26 }, { width: 22 }, { width: 18 }, { width: 14 },
+      { width: 15 }, { width: 22 }, { width: 22 }, { width: 14 }, { width: 36 }, { width: 34 },
+    ];
+    sheet.getRow(1).height = 34;
+    sheet.getRow(2).height = 24;
+    sheet.getRow(3).height = 24;
+    sheet.getRow(4).height = 32;
+    sheet.getRow(1).getCell(1).font = { name: "Aptos Display", size: 18, bold: true, color: { argb: "FFFFFFFF" } };
+    sheet.getRow(1).getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF162A55" } };
+    sheet.getRow(1).getCell(1).alignment = { vertical: "middle" };
+    sheet.getRow(2).getCell(1).font = { name: "Aptos", size: 10, italic: true, color: { argb: "FF475569" } };
+    sheet.getRow(3).getCell(1).font = { name: "Aptos", size: 10, bold: true, color: { argb: "FF162A55" } };
+    sheet.getRow(3).getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEAF0F8" } };
+    sheet.getRow(4).eachCell((cell) => {
+      cell.font = { name: "Aptos", size: 10, bold: true, color: { argb: "FFFFFFFF" } };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF284778" } };
+      cell.alignment = { vertical: "middle", horizontal: "left", wrapText: true };
+      cell.border = { bottom: { style: "medium", color: { argb: "FF162A55" } } };
+    });
+    for (let rowNumber = 5; rowNumber <= sheet.rowCount; rowNumber++) {
+      const row = sheet.getRow(rowNumber);
+      row.height = 32;
+      row.eachCell({ includeEmpty: true }, (cell, columnNumber) => {
+        cell.font = { name: "Aptos", size: 10, color: { argb: "FF1E293B" } };
+        cell.alignment = { vertical: "top", wrapText: true };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: rowNumber % 2 ? "FFF1F5F9" : "FFFFFFFF" } };
+        cell.border = { bottom: { style: "hair", color: { argb: "FFCBD5E1" } } };
+        if (columnNumber === 10) {
+          const colors = { Lewat: ["FFFFE4E6", "FF9F1239"], Aktif: ["FFDBEAFE", "FF1D4ED8"], Selesai: ["FFDCFCE7", "FF166534"] };
+          const [fill, color] = colors[cell.value] || [];
+          if (fill) {
+            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: fill } };
+            cell.font = { name: "Aptos", size: 10, bold: true, color: { argb: color } };
+          }
+        }
+        if (columnNumber === 12 && cell.value && cell.value !== "-") {
+          cell.font = { name: "Aptos", size: 10, bold: true, color: { argb: "FF9A3412" } };
+        }
+      });
+    }
+    if (rows.length) sheet.autoFilter = { from: "A4", to: `L${sheet.rowCount}` };
+    const date = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(new Date());
+    const bytes = await workbook.xlsx.writeBuffer();
+    const url = URL.createObjectURL(new Blob([bytes], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }));
     const link = document.createElement("a");
     link.href = url;
-    link.download = "rekod_garaj_basikal.csv";
+    link.download = `rekod_garaj_basikal_${date}.xlsx`;
     link.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   async function loadStaff() {
