@@ -629,15 +629,7 @@ if (!configured) {
   }
 
   async function exportExcel(data) {
-    const { default: ExcelJS } = await import("https://esm.sh/exceljs@4.4.0?bundle");
-    const workbook = new ExcelJS.Workbook();
-    workbook.creator = "Sistem Garaj Basikal";
-    workbook.subject = "Rekod pinjaman individu dan berkumpulan";
-    workbook.created = new Date();
-    const sheet = workbook.addWorksheet("Rekod Pinjaman", {
-      views: [{ state: "frozen", ySplit: 4, showGridLines: false }],
-      pageSetup: { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
-    });
+    const XLSX = (await import("https://esm.sh/xlsx-js-style@1.2.0")).default;
     const headers = ["Jenis", "ID", "Nama / Pensyarah", "Kelas / Kelab", "No. Matrik", "Basikal",
       "Sesi", "Tarikh Ambil", "Tarikh Hantar", "Status", "Catatan", "Catatan Lewat / Hukuman"];
     const rows = [
@@ -653,60 +645,77 @@ if (!configured) {
     const activeCount = data.records.filter((record) => !record.returned_at).length +
       data.group_loans.filter((loan) => loan.is_active).length;
     const exportedAt = fmt(new Date().toISOString());
-    sheet.mergeCells(1, 1, 1, headers.length);
-    sheet.mergeCells(2, 1, 2, headers.length);
-    sheet.mergeCells(3, 1, 3, headers.length);
-    sheet.getCell("A1").value = "REKOD PINJAMAN BASIKAL";
-    sheet.getCell("A2").value = `Dieksport pada ${exportedAt}`;
-    sheet.getCell("A3").value = `Jumlah rekod: ${rows.length}   |   Lewat: ${lateCount}   |   Pinjaman aktif: ${activeCount}`;
-    sheet.addRow(headers);
-    sheet.addRows(rows);
-    sheet.columns = [
-      { width: 15 }, { width: 38 }, { width: 26 }, { width: 22 }, { width: 18 }, { width: 14 },
-      { width: 15 }, { width: 22 }, { width: 22 }, { width: 14 }, { width: 36 }, { width: 34 },
+    const sheet = XLSX.utils.aoa_to_sheet([
+      ["REKOD PINJAMAN BASIKAL"],
+      [`Dieksport pada ${exportedAt}`],
+      [`Jumlah rekod: ${rows.length}   |   Lewat: ${lateCount}   |   Pinjaman aktif: ${activeCount}`],
+      headers,
+      ...rows,
+    ]);
+    sheet["!merges"] = [0, 1, 2].map((row) => ({ s: { r: row, c: 0 }, e: { r: row, c: headers.length - 1 } }));
+    sheet["!cols"] = [
+      { wch: 15 }, { wch: 38 }, { wch: 26 }, { wch: 22 }, { wch: 18 }, { wch: 14 },
+      { wch: 15 }, { wch: 22 }, { wch: 22 }, { wch: 14 }, { wch: 36 }, { wch: 34 },
     ];
-    sheet.getRow(1).height = 34;
-    sheet.getRow(2).height = 24;
-    sheet.getRow(3).height = 24;
-    sheet.getRow(4).height = 32;
-    sheet.getRow(1).getCell(1).font = { name: "Aptos Display", size: 18, bold: true, color: { argb: "FFFFFFFF" } };
-    sheet.getRow(1).getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF162A55" } };
-    sheet.getRow(1).getCell(1).alignment = { vertical: "middle" };
-    sheet.getRow(2).getCell(1).font = { name: "Aptos", size: 10, italic: true, color: { argb: "FF475569" } };
-    sheet.getRow(3).getCell(1).font = { name: "Aptos", size: 10, bold: true, color: { argb: "FF162A55" } };
-    sheet.getRow(3).getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEAF0F8" } };
-    sheet.getRow(4).eachCell((cell) => {
-      cell.font = { name: "Aptos", size: 10, bold: true, color: { argb: "FFFFFFFF" } };
-      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF284778" } };
-      cell.alignment = { vertical: "middle", horizontal: "left", wrapText: true };
-      cell.border = { bottom: { style: "medium", color: { argb: "FF162A55" } } };
+    sheet["!rows"] = [{ hpt: 34 }, { hpt: 24 }, { hpt: 24 }, { hpt: 32 },
+      ...rows.map(() => ({ hpt: 32 }))];
+    sheet["!autofilter"] = { ref: `A4:L${Math.max(rows.length + 4, 4)}` };
+    const cellStyle = (cell, style) => {
+      cell.s = style;
+    };
+    cellStyle(sheet.A1, {
+      font: { name: "Aptos Display", sz: 18, bold: true, color: { rgb: "FFFFFF" } },
+      fill: { fgColor: { rgb: "162A55" } },
+      alignment: { vertical: "center" },
     });
-    for (let rowNumber = 5; rowNumber <= sheet.rowCount; rowNumber++) {
-      const row = sheet.getRow(rowNumber);
-      row.height = 32;
-      row.eachCell({ includeEmpty: true }, (cell, columnNumber) => {
-        cell.font = { name: "Aptos", size: 10, color: { argb: "FF1E293B" } };
-        cell.alignment = { vertical: "top", wrapText: true };
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: rowNumber % 2 ? "FFF1F5F9" : "FFFFFFFF" } };
-        cell.border = { bottom: { style: "hair", color: { argb: "FFCBD5E1" } } };
-        if (columnNumber === 10) {
-          const colors = { Lewat: ["FFFFE4E6", "FF9F1239"], Aktif: ["FFDBEAFE", "FF1D4ED8"], Selesai: ["FFDCFCE7", "FF166534"] };
-          const [fill, color] = colors[cell.value] || [];
+    cellStyle(sheet.A2, {
+      font: { name: "Aptos", sz: 10, italic: true, color: { rgb: "475569" } },
+      alignment: { vertical: "center" },
+    });
+    cellStyle(sheet.A3, {
+      font: { name: "Aptos", sz: 10, bold: true, color: { rgb: "162A55" } },
+      fill: { fgColor: { rgb: "EAF0F8" } },
+      alignment: { vertical: "center" },
+    });
+    headers.forEach((_, column) => {
+      const cell = sheet[XLSX.utils.encode_cell({ r: 3, c: column })];
+      cellStyle(cell, {
+        font: { name: "Aptos", sz: 10, bold: true, color: { rgb: "FFFFFF" } },
+        fill: { fgColor: { rgb: "284778" } },
+        alignment: { vertical: "center", wrapText: true },
+        border: { bottom: { style: "medium", color: { rgb: "162A55" } } },
+      });
+    });
+    rows.forEach((row, rowIndex) => {
+      row.forEach((value, column) => {
+        const cell = sheet[XLSX.utils.encode_cell({ r: rowIndex + 4, c: column })];
+        const stripe = rowIndex % 2 ? "FFFFFF" : "F1F5F9";
+        cellStyle(cell, {
+          font: { name: "Aptos", sz: 10, color: { rgb: "1E293B" } },
+          fill: { fgColor: { rgb: stripe } },
+          alignment: { vertical: "top", wrapText: true },
+          border: { bottom: { style: "hair", color: { rgb: "CBD5E1" } } },
+        });
+        if (column === 9) {
+          const colors = { Lewat: ["FFE4E6", "9F1239"], Aktif: ["DBEAFE", "1D4ED8"], Selesai: ["DCFCE7", "166534"] };
+          const [fill, color] = colors[value] || [];
           if (fill) {
-            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: fill } };
-            cell.font = { name: "Aptos", size: 10, bold: true, color: { argb: color } };
+            cell.s.fill = { fgColor: { rgb: fill } };
+            cell.s.font = { name: "Aptos", sz: 10, bold: true, color: { rgb: color } };
           }
         }
-        if (columnNumber === 12 && cell.value && cell.value !== "-") {
-          cell.font = { name: "Aptos", size: 10, bold: true, color: { argb: "FF9A3412" } };
+        if (column === 11 && value && value !== "-") {
+          cell.s.font = { name: "Aptos", sz: 10, bold: true, color: { rgb: "9A3412" } };
         }
       });
-    }
-    if (rows.length) sheet.autoFilter = { from: "A4", to: `L${sheet.rowCount}` };
+    });
+    const workbook = XLSX.utils.book_new();
+    workbook.Props = { Title: "Rekod Pinjaman Basikal", Author: "Sistem Garaj Basikal" };
+    XLSX.utils.book_append_sheet(workbook, sheet, "Rekod Pinjaman");
     const date = new Intl.DateTimeFormat("en-CA", {
       timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit", day: "2-digit",
     }).format(new Date());
-    const bytes = await workbook.xlsx.writeBuffer();
+    const bytes = XLSX.write(workbook, { type: "array", bookType: "xlsx" });
     const url = URL.createObjectURL(new Blob([bytes], {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     }));
