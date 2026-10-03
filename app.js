@@ -662,7 +662,7 @@ if (!configured) {
       return;
     }
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: location.origin });
+      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${location.origin}${location.pathname}` });
       showMessage($("#loginResult"), error?.message || "Jika akaun itu wujud, pautan set semula telah dihantar.", !error);
     } catch (error) {
       showMessage($("#loginResult"), error instanceof Error ? error.message : "Pautan set semula tidak dapat diminta.", false);
