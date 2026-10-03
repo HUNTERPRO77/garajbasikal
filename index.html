@@ -68,24 +68,14 @@
     <div class="wrap">
       <div id="loginCard" class="login-card">
         <h2>🔐 Portal Admin & Penjaga</h2>
-        <p class="muted">Akaun staf perlu dijemput oleh Admin. Tiada pendaftaran staf terbuka.</p>
+        <p class="muted">Log masuk menggunakan username dan kata laluan. Akaun staf hanya boleh dicipta dan diurus oleh Admin.</p>
         <form id="loginForm">
-          <label for="loginEmail">E-mel</label><input id="loginEmail" name="email" type="email" required autocomplete="username">
+          <label for="loginUsername">Username</label><input id="loginUsername" name="username" required minlength="3" maxlength="32" autocomplete="username">
           <label for="loginPassword">Kata Laluan</label><input id="loginPassword" name="password" type="password" required autocomplete="current-password">
           <button class="btn primary full">Log Masuk</button>
         </form>
-        <button id="resetPasswordButton" class="link-button" type="button">Hantar pautan set semula kata laluan</button>
+        <p class="muted">Jika terlupa kata laluan, minta Admin menetapkan kata laluan baharu.</p>
         <div id="loginResult" aria-live="polite"></div>
-      </div>
-      <div id="credentialCard" class="login-card" hidden>
-        <h2>Tetapkan Kata Laluan</h2>
-        <p class="muted">Pilih kata laluan sekurang-kurangnya 12 aksara untuk akaun staf.</p>
-        <form id="credentialForm">
-          <label for="newPassword">Kata Laluan Baharu</label><input id="newPassword" name="password" type="password" minlength="12" required autocomplete="new-password">
-          <label for="confirmPassword">Sahkan Kata Laluan</label><input id="confirmPassword" name="confirm_password" type="password" minlength="12" required autocomplete="new-password">
-          <button class="btn primary full">Simpan Kata Laluan</button>
-        </form>
-        <div id="credentialResult" aria-live="polite"></div>
       </div>
       <div id="dashboard" hidden></div>
     </div>

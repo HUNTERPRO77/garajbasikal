@@ -3,6 +3,7 @@ import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./supabase-config.js";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+const staffAuthEmail = (username) => `${username.toLowerCase()}@staff.garajbasikal.invalid`;
 document.addEventListener("error", (event) => {
   const image = event.target;
   if (image instanceof HTMLImageElement && !image.dataset.fallback) {
@@ -11,8 +12,6 @@ document.addEventListener("error", (event) => {
   }
 }, true);
 const params = new URLSearchParams(location.search);
-const authFlowType = new URLSearchParams(location.hash.slice(1)).get("type") || params.get("type") ||
-  (params.has("code") ? "code" : "");
 const garage = params.get("garage") || "";
 const groupMode = params.get("group") === "1";
 let qrReady = false;
@@ -404,21 +403,37 @@ if (!configured) {
           <div class="mini-row"><span>Kapasiti Sesi 1</span><b>${records.filter((r) => r.session_name === "Sesi 1" && !r.returned_at).length}/${setting.session_capacity}</b></div>
           <div class="mini-row"><span>Kapasiti Sesi 2</span><b>${records.filter((r) => r.session_name === "Sesi 2" && !r.returned_at).length}/${setting.session_capacity}</b></div>
         </div><div><h3>QR</h3><img src="qr-placeholder.svg" data-qr-src="qr_garaj_basikal.png" width="160" alt="QR garaj"><img src="qr-placeholder.svg" data-qr-src="qr_pinjaman_berkumpulan.png" width="160" alt="QR pinjaman berkumpulan"></div></div></section>
-        <section class="section-card"><h2>Jemput Staf</h2><p class="muted">Hantar jemputan e-mel; staf menetapkan akaun melalui pautan Supabase.</p>
-          <form id="inviteForm" class="grid2"><div><label>E-mel</label><input name="email" type="email" required></div><div><label>Nama paparan</label><input name="display_name" required maxlength="100"></div>
-          <div><label>Peranan</label><select name="role"><option value="penjaga">Penjaga</option><option value="admin">Admin</option></select></div><div class="align-end"><button class="btn primary">Hantar Jemputan</button></div></form>
-          <div class="table-wrap"><table><thead><tr><th>E-mel</th><th>Nama</th><th>Peranan</th><th>Status</th><th>Tindakan</th></tr></thead><tbody>
-          ${data.staff_profiles.map((profile) => `<tr><td>${escapeHtml(profile.email)}</td><td>${escapeHtml(profile.display_name)}</td>
+        <section class="section-card"><h2>Tambah Akaun Staf</h2><p class="muted">Akaun menggunakan username dan kata laluan sahaja. Admin memberikan kata laluan awal secara peribadi dan boleh menetapkan semula kata laluan.</p>
+          <form id="staffCreateForm" class="grid2"><div><label>Username</label><input name="username" required minlength="3" maxlength="32" pattern="[A-Za-z0-9][A-Za-z0-9._-]{2,31}" autocomplete="off"></div><div><label>Nama paparan</label><input name="display_name" required maxlength="100"></div>
+          <div><label>Peranan</label><select name="role"><option value="penjaga">Penjaga</option><option value="admin">Admin</option></select></div><div><label>Kata laluan awal (12-72 aksara)</label><input name="password" type="password" required minlength="12" maxlength="72" autocomplete="new-password"></div>
+          <div class="align-end"><button class="btn primary">Cipta Akaun</button></div></form>
+          <div class="table-wrap"><table><thead><tr><th>Username</th><th>Nama</th><th>Peranan</th><th>Status</th><th>Tetapkan Semula Kata Laluan</th><th>Akses</th></tr></thead><tbody>
+          ${data.staff_profiles.map((profile) => `<tr><td>${escapeHtml(profile.username)}</td><td>${escapeHtml(profile.display_name)}</td>
             <td><select data-staff-role="${escapeHtml(profile.user_id)}"><option value="admin" ${profile.role === "admin" ? "selected" : ""}>Admin</option><option value="penjaga" ${profile.role === "penjaga" ? "selected" : ""}>Penjaga</option></select></td>
-            <td>${profile.active ? "Aktif" : "Nyahaktif"}</td><td><button class="btn small secondary" data-staff-toggle="${escapeHtml(profile.user_id)}" data-active="${!profile.active}">${profile.active ? "Nyahaktif" : "Aktifkan"}</button></td></tr>`).join("")}
+            <td>${profile.active ? "Aktif" : "Nyahaktif"}</td>
+            <td><form class="staff-password-form" data-staff-password="${escapeHtml(profile.user_id)}"><input name="password" type="password" required minlength="12" maxlength="72" autocomplete="new-password" aria-label="Kata laluan baharu untuk ${escapeHtml(profile.username)}"><button class="btn small secondary">Tetapkan</button></form></td>
+            <td><button class="btn small secondary" data-staff-toggle="${escapeHtml(profile.user_id)}" data-active="${!profile.active}">${profile.active ? "Nyahaktif" : "Aktifkan"}</button></td></tr>`).join("")}
           </tbody></table></div></section>`;
-      $("#inviteForm").addEventListener("submit", async (event) => {
+      $("#staffCreateForm").addEventListener("submit", async (event) => {
         event.preventDefault();
         const fields = Object.fromEntries(new FormData(event.currentTarget));
-        const result = await api("staff_invite", fields);
+        const result = await api("staff_create", fields);
         alert(result.message);
-        if (result.ok) await loadStaff();
+        if (result.ok) {
+          event.currentTarget.reset();
+          await loadStaff();
+        }
       });
+      $$(".staff-password-form").forEach((form) => form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const fields = new FormData(event.currentTarget);
+        const result = await api("staff_password_reset", {
+          user_id: form.dataset.staffPassword,
+          password: fields.get("password"),
+        });
+        alert(result.message);
+        if (result.ok) event.currentTarget.reset();
+      }));
       $$("[data-staff-toggle]").forEach((button) => button.addEventListener("click", async () => {
         const role = $(`[data-staff-role="${button.dataset.staffToggle}"]`).value;
         const result = await api("staff_update", { user_id: button.dataset.staffToggle, role, active: button.dataset.active === "true" });
@@ -570,7 +585,7 @@ if (!configured) {
       $("#passwordForm").addEventListener("submit", async (event) => {
         event.preventDefault();
         const fields = Object.fromEntries(new FormData(event.currentTarget));
-        const { error: verifyError } = await supabase.auth.signInWithPassword({ email: staff.email, password: fields.old_password });
+        const { error: verifyError } = await supabase.auth.signInWithPassword({ email: staffAuthEmail(staff.username), password: fields.old_password });
         if (verifyError) { alert("Kata laluan lama salah."); return; }
         const { error } = await supabase.auth.updateUser({ password: fields.new_password });
         alert(error?.message || "Kata laluan berjaya ditukar.");
@@ -637,8 +652,9 @@ if (!configured) {
   $("#loginForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    const username = String(form.get("username")).trim().toLowerCase();
     const { data, error } = await supabase.auth.signInWithPassword({
-      email: String(form.get("email")).trim(),
+      email: staffAuthEmail(username),
       password: String(form.get("password")),
     });
     if (error || !data.session) {
@@ -646,8 +662,6 @@ if (!configured) {
       return;
     }
     try {
-      const claim = await api("staff_claim_invite");
-      if (!claim.ok) throw new Error(claim.message);
       await loadStaff();
     } catch (error) {
       await supabase.auth.signOut();
@@ -655,61 +669,9 @@ if (!configured) {
     }
   });
 
-  $("#resetPasswordButton").addEventListener("click", async () => {
-    const email = $("#loginEmail").value.trim();
-    if (!email) {
-      showMessage($("#loginResult"), "Masukkan e-mel akaun terlebih dahulu.", false);
-      return;
-    }
-    try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${location.origin}${location.pathname}` });
-      showMessage($("#loginResult"), error?.message || "Jika akaun itu wujud, pautan set semula telah dihantar.", !error);
-    } catch (error) {
-      showMessage($("#loginResult"), error instanceof Error ? error.message : "Pautan set semula tidak dapat diminta.", false);
-    }
-  });
-
-  $("#credentialForm").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const password = $("#newPassword").value;
-    if (password.length < 12) {
-      showMessage($("#credentialResult"), "Kata laluan mestilah sekurang-kurangnya 12 aksara.", false);
-      return;
-    }
-    if (password !== $("#confirmPassword").value) {
-      showMessage($("#credentialResult"), "Pengesahan kata laluan tidak sepadan.", false);
-      return;
-    }
-    const { error } = await supabase.auth.updateUser({ password });
-    if (error) {
-      showMessage($("#credentialResult"), error.message, false);
-      return;
-    }
-    try {
-      const claim = await api("staff_claim_invite");
-      if (!claim.ok) throw new Error(claim.message);
-      await loadStaff();
-      $("#credentialCard").hidden = true;
-    } catch (error) {
-      showMessage($("#credentialResult"), error instanceof Error ? error.message : "Akaun staf tidak dapat disahkan.", false);
-    }
-  });
-
   supabase.auth.getSession().then(async ({ data: { session } }) => {
-    if (!session) {
-      if (["invite", "recovery", "code"].includes(authFlowType)) {
-        showMessage($("#loginResult"), "Pautan tidak sah atau telah tamat tempoh. Minta pautan baharu.", false);
-      }
-      return;
-    }
-    if (["invite", "recovery", "code"].includes(authFlowType)) {
-      $("#loginCard").hidden = true;
-      $("#credentialCard").hidden = false;
-      return;
-    }
+    if (!session) return;
     try {
-      const claim = await api("staff_claim_invite");
-      if (!claim.ok) return;
       await loadStaff();
     } catch (error) {
       await supabase.auth.signOut();
