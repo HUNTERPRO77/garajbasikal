@@ -379,9 +379,10 @@ if (!configured) {
       </div>
       <nav class="tabs" id="staffTabs">
         ${staff.role === "admin" ? '<button data-tab="overview" class="tab">Sistem</button><button data-tab="bikes" class="tab">Basikal</button><button data-tab="borrowers" class="tab">Peminjam</button>' : ""}
+        <button data-tab="attendance" class="tab">Kehadiran</button>
         <button data-tab="records" class="tab active">Rekod</button>
         <button data-tab="notes" class="tab">Catatan</button>
-        ${staff.role === "admin" ? '<button data-tab="punishment" class="tab">Hukuman</button><button data-tab="stats" class="tab">Statistik</button><button data-tab="audit" class="tab">Audit Log</button><button data-tab="settings" class="tab">Tetapan</button>' : ""}
+        ${staff.role === "admin" ? '<button data-tab="punishment" class="tab">Hukuman Peminjam</button><button data-tab="keeper-discipline" class="tab">Hukuman Penjaga</button><button data-tab="stats" class="tab">Statistik</button><button data-tab="audit" class="tab">Audit Log</button><button data-tab="settings" class="tab">Tetapan</button>' : ""}
       </nav>
       <div id="staffView"></div>`;
     $("#logoutButton").addEventListener("click", async () => {
@@ -404,6 +405,57 @@ if (!configured) {
       ...loan,
       bikes: data.group_loan_bikes.filter((bike) => bike.group_loan_id === loan.id).map((bike) => bike.bike_no).sort(),
     }));
+    if (tab === "attendance") {
+      const today = shiftDateToday();
+      const attendance = data.keeper_attendance.find((row) => row.staff_user_id === staff.user_id && row.shift_date === today);
+      const currentSeconds = staff.role === "penjaga" ? shiftSecondsNow() : 0;
+      const isLateCheckIn = currentSeconds > 17 * 3600 + 15 * 60;
+      const canCheckOut = currentSeconds > 18 * 3600 + 50 * 60;
+      const attendanceRows = [...data.keeper_attendance].sort((a, b) =>
+        `${b.shift_date} ${b.checked_in_at}`.localeCompare(`${a.shift_date} ${a.checked_in_at}`)
+      );
+      view.innerHTML = `${staff.role === "penjaga" ? `<section class="section-card"><h2>Thumbprint Kehadiran Penjaga</h2>
+        <p class="muted">Syif bermula 5:15 petang. Rekod masuk sebelum 5:15 petang; jika thumbprint masuk selepas waktu itu, pilih sebab. Thumbprint keluar dibuka selepas 6:50 petang.</p>
+        <div class="mini-list">
+          <div class="mini-row"><span>Tarikh syif</span><b>${escapeHtml(today)}</b></div>
+          <div class="mini-row"><span>Thumbprint masuk</span><b>${attendance ? fmt(attendance.checked_in_at) : "Belum direkodkan"}</b></div>
+          <div class="mini-row"><span>Thumbprint keluar</span><b>${attendance?.checked_out_at ? fmt(attendance.checked_out_at) : "Belum direkodkan"}</b></div>
+        </div>
+        <form id="keeperCheckInForm" class="grid2">
+          ${isLateCheckIn ? `<div><label for="keeperLateReason">Sebab thumbprint masuk lewat</label><select id="keeperLateReason" name="late_reason" required><option value="">Pilih sebab</option><option value="garage_opened_late">Garaj lambat buka</option><option value="late_for_duty">Terlambat bertugas</option><option value="other">Lain-lain</option></select></div>
+          <div id="keeperLateOtherWrap" hidden><label for="keeperLateReasonNote">Nyatakan sebab lain</label><input id="keeperLateReasonNote" name="late_reason_note" maxlength="500"></div>` : ""}
+          <button class="btn primary" ${attendance ? "disabled" : ""}>Thumbprint Masuk</button>
+        </form>
+        <button id="keeperCheckOutButton" class="btn secondary" ${!attendance || attendance.checked_out_at || !canCheckOut ? "disabled" : ""}>Thumbprint Keluar</button>
+        <div id="keeperAttendanceResult" aria-live="polite"></div></section>` : ""}
+        <section class="section-card"><h2>Rekod Kehadiran${staff.role === "admin" ? " Semua Penjaga" : ""}</h2>
+        <div class="table-wrap"><table><thead><tr>${staff.role === "admin" ? "<th>Penjaga</th>" : ""}<th>Tarikh Syif</th><th>Masuk</th><th>Sebab Lewat</th><th>Catatan Sebab Lain</th><th>Keluar</th></tr></thead><tbody>
+        ${attendanceRows.map((row) => `<tr>${staff.role === "admin" ? `<td>${escapeHtml(row.staff_name)} (${escapeHtml(row.staff_username)})</td>` : ""}<td>${escapeHtml(row.shift_date)}</td><td>${fmt(row.checked_in_at)}</td><td>${escapeHtml(lateReasonLabel(row.late_reason))}</td><td>${escapeHtml(row.late_reason_note || "-")}</td><td>${fmt(row.checked_out_at)}</td></tr>`).join("")}
+        </tbody></table></div></section>`;
+      $("#keeperLateReason")?.addEventListener("change", (event) => {
+        const otherWrap = $("#keeperLateOtherWrap");
+        const otherNote = $("#keeperLateReasonNote");
+        const isOther = event.currentTarget.value === "other";
+        otherWrap.hidden = !isOther;
+        otherNote.required = isOther;
+      });
+      $("#keeperCheckInForm")?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const fields = new FormData(event.currentTarget);
+        const result = await api("keeper_check_in", {
+          late_reason: fields.get("late_reason") || "",
+          late_reason_note: fields.get("late_reason_note") || "",
+        });
+        await loadStaff("attendance");
+        showMessage($("#keeperAttendanceResult"), result.message, result.ok);
+      });
+      $("#keeperCheckOutButton")?.addEventListener("click", async () => {
+        const result = await api("keeper_check_out");
+        await loadStaff("attendance");
+        showMessage($("#keeperAttendanceResult"), result.message, result.ok);
+      });
+      return;
+    }
     if (tab === "overview") {
       const setting = data.app_settings[0];
       view.innerHTML = `<section class="section-card"><h2>Status Sistem</h2>
@@ -566,7 +618,26 @@ if (!configured) {
       return;
     }
     if (tab === "punishment") {
-      view.innerHTML = `<section class="section-card"><h2>Bahagian Hukuman</h2><div class="table-wrap"><table><thead><tr><th>Matrik</th><th>Nama</th><th>Sebab</th><th>Mula</th><th>Tamat</th><th>Status</th></tr></thead><tbody>${[...data.punishments].sort((a, b) => b.created_at.localeCompare(a.created_at)).map((row) => `<tr><td>${escapeHtml(row.matrix)}</td><td>${escapeHtml(row.name)}</td><td>${escapeHtml(row.reason)}</td><td>${fmt(row.start_at)}</td><td>${fmt(row.until)}</td><td>${new Date(row.until) > new Date() ? "Sedang ditahan" : "Tamat"}</td></tr>`).join("")}</tbody></table></div></section>`;
+      view.innerHTML = `<section class="section-card"><h2>Hukuman Peminjam</h2><div class="table-wrap"><table><thead><tr><th>Matrik</th><th>Nama</th><th>Sebab</th><th>Mula</th><th>Tamat</th><th>Status</th></tr></thead><tbody>${[...data.punishments].sort((a, b) => b.created_at.localeCompare(a.created_at)).map((row) => `<tr><td>${escapeHtml(row.matrix)}</td><td>${escapeHtml(row.name)}</td><td>${escapeHtml(row.reason)}</td><td>${fmt(row.start_at)}</td><td>${fmt(row.until)}</td><td>${new Date(row.until) > new Date() ? "Sedang ditahan" : "Tamat"}</td></tr>`).join("")}</tbody></table></div></section>`;
+      return;
+    }
+    if (tab === "keeper-discipline" && staff.role === "admin") {
+      const keepers = data.staff_profiles.filter((profile) => profile.role === "penjaga");
+      view.innerHTML = `<section class="section-card"><h2>Rekod Amaran / Kesalahan Penjaga</h2><p class="muted">Rekod ini untuk dokumentasi sahaja dan tidak menyekat akaun secara automatik.</p>
+        <form id="keeperDisciplineForm" class="grid2"><div><label for="keeperDisciplineUser">Penjaga</label><select id="keeperDisciplineUser" name="keeper_user_id" required><option value="">Pilih penjaga</option>${keepers.map((keeper) => `<option value="${escapeHtml(keeper.user_id)}">${escapeHtml(keeper.display_name)} (${escapeHtml(keeper.username)})</option>`).join("")}</select></div>
+        <div><label for="keeperDisciplineCategory">Jenis kesalahan / amaran</label><input id="keeperDisciplineCategory" name="category" maxlength="100" required></div>
+        <div><label for="keeperDisciplineNote">Catatan</label><textarea id="keeperDisciplineNote" name="note" maxlength="1000" rows="3"></textarea></div>
+        <div class="align-end"><button class="btn primary">Simpan Rekod</button></div></form><div id="keeperDisciplineResult" aria-live="polite"></div></section>
+        <section class="section-card"><h2>Sejarah Rekod Penjaga</h2><div class="table-wrap"><table><thead><tr><th>Masa</th><th>Penjaga</th><th>Jenis Kesalahan / Amaran</th><th>Catatan</th><th>Direkodkan Oleh</th></tr></thead><tbody>
+        ${[...data.keeper_discipline].sort((a, b) => b.created_at.localeCompare(a.created_at)).map((row) => `<tr><td>${fmt(row.created_at)}</td><td>${escapeHtml(row.keeper_name)} (${escapeHtml(row.keeper_username)})</td><td>${escapeHtml(row.category)}</td><td>${escapeHtml(row.note || "-")}</td><td>${escapeHtml(row.created_by_name)}</td></tr>`).join("")}
+        </tbody></table></div></section>`;
+      $("#keeperDisciplineForm").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const fields = Object.fromEntries(new FormData(event.currentTarget));
+        const result = await api("keeper_discipline_create", fields);
+        if (result.ok) await loadStaff("keeper-discipline");
+        showMessage($("#keeperDisciplineResult"), result.message, result.ok);
+      });
       return;
     }
     if (tab === "stats") {
@@ -649,6 +720,38 @@ if (!configured) {
     const minute = timeParts.find((part) => part.type === "minute")?.value;
     const period = timeParts.find((part) => part.type === "dayPeriod")?.value.toUpperCase();
     return `${dateText} ${hour}:${minute} ${period}`;
+  }
+
+  function shiftDateToday() {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Kuala_Lumpur",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(new Date());
+    const value = (type) => parts.find((part) => part.type === type)?.value || "";
+    return `${value("year")}-${value("month")}-${value("day")}`;
+  }
+
+  function shiftSecondsNow() {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Kuala_Lumpur",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(new Date());
+    return Number(parts.find((part) => part.type === "hour")?.value || 0) * 3600 +
+      Number(parts.find((part) => part.type === "minute")?.value || 0) * 60 +
+      Number(parts.find((part) => part.type === "second")?.value || 0);
+  }
+
+  function lateReasonLabel(reason) {
+    return ({
+      garage_opened_late: "Garaj lambat buka",
+      late_for_duty: "Terlambat bertugas",
+      other: "Lain-lain",
+    })[reason] || "-";
   }
 
   function returnException(record) {
