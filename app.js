@@ -415,12 +415,26 @@ if (!configured) {
       const yearSettings = data.keeper_year_settings[0];
       const weekday = shiftWeekdayToday();
       const todayRoster = data.keeper_roster.filter((row) => row.active && row.duty_days.includes(weekday));
+      const todayAttendance = data.keeper_today_attendance || [];
       const myAssignment = todayRoster.find((row) =>
         staff.role === "admin" ? row.staff_user_id === staff.user_id : row.assigned_to_me
       );
+      const myRosterEntry = data.keeper_roster.find((row) => row.active && row.assigned_to_me);
       const attendance = data.keeper_attendance.find((row) =>
         row.staff_user_id === staff.user_id && row.shift_date === today && row.year_label === yearSettings.year_label
       );
+      const coveredRosterIds = new Set(todayAttendance.flatMap((row) =>
+        [row.replaced_roster_id, row.roster_id].filter(Boolean)
+      ));
+      const coveredRosterNames = new Set(todayAttendance.flatMap((row) =>
+        [row.replaced_staff_name, row.staff_name].filter(Boolean)
+      ));
+      const replacementOptions = todayRoster.filter((row) =>
+        !row.assigned_to_me && !coveredRosterIds.has(row.id) && !coveredRosterNames.has(row.staff_name)
+      );
+      const canReplace = staff.role === "penjaga" && !myAssignment && !attendance && myRosterEntry &&
+        replacementOptions.length > 0;
+      const canCheckIn = staff.role === "penjaga" && (myAssignment || canReplace);
       const currentSeconds = staff.role === "penjaga" ? shiftSecondsNow() : 0;
       const shiftStartSeconds = clockSeconds(yearSettings.shift_start);
       const shiftEndSeconds = clockSeconds(yearSettings.shift_end);
@@ -432,24 +446,39 @@ if (!configured) {
       );
       view.innerHTML = `${staff.role === "penjaga" ? `<section class="section-card"><h2>Thumbprint Kehadiran Penjaga</h2>
         <p class="muted">Sesi ${escapeHtml(yearSettings.year_label)} · Tugas ${escapeHtml(formatClock(yearSettings.shift_start))}–${escapeHtml(formatClock(yearSettings.shift_end))}. Thumbprint masuk lewat memerlukan sebab. Thumbprint keluar dibuka selepas waktu tamat syif.</p>
-        <div class="mini-row"><span>Tugas hari ini</span><b>${isClosedDay ? "Garaj ditutup (Sabtu/Ahad)" : myAssignment ? `${escapeHtml(dutyRoleLabel(myAssignment.duty_role))} — ${escapeHtml(myAssignment.staff_name)}` : "Tiada jadual bertugas"}</b></div>
+        <div class="mini-row"><span>Tugas hari ini</span><b>${isClosedDay ? "Garaj ditutup (Sabtu/Ahad)" : myAssignment ? `${escapeHtml(dutyRoleLabel(myAssignment.duty_role))} — ${escapeHtml(myAssignment.staff_name)}` : attendance?.replaced_staff_name ? `Pengganti — ${escapeHtml(attendance.replaced_staff_name)}` : canReplace ? "Pengganti (pilih penjaga di bawah)" : "Tiada jadual bertugas"}</b></div>
         <div class="mini-list">
           <div class="mini-row"><span>Tarikh syif</span><b>${escapeHtml(today)}</b></div>
           <div class="mini-row"><span>Thumbprint masuk</span><b>${attendance ? fmt(attendance.checked_in_at) : "Belum direkodkan"}</b></div>
           <div class="mini-row"><span>Thumbprint keluar</span><b>${attendance?.checked_out_at ? fmt(attendance.checked_out_at) : "Belum direkodkan"}</b></div>
         </div>
-        ${isClosedDay ? '<div class="alert info">Garaj ditutup setiap Sabtu dan Ahad. Tiada thumbprint direkodkan.</div>' : !myAssignment ? '<div class="alert info">Hari ini bukan hari tugas akaun anda. Hubungi Admin jika jadual perlu diubah.</div>' : ""}
-        ${!isClosedDay && myAssignment ? `<form id="keeperCheckInForm" class="grid2">
+        ${isClosedDay ? '<div class="alert info">Garaj ditutup setiap Sabtu dan Ahad. Tiada thumbprint direkodkan.</div>' : !myAssignment && !canReplace ? `<div class="alert info">${myRosterEntry ? "Hari ini bukan hari tugas anda atau semua tugas sudah diisi." : "Akaun anda belum dipautkan kepada jadual penjaga. Hubungi Admin."}</div>` : ""}
+        ${!isClosedDay && canCheckIn ? `<form id="keeperCheckInForm" class="grid2">
+          ${canReplace ? `<div><label for="keeperReplacement">Menggantikan penjaga</label><select id="keeperReplacement" name="replaced_roster_id" required><option value="">Pilih penjaga yang digantikan</option>${replacementOptions.map((row) => `<option value="${escapeHtml(row.id)}">${escapeHtml(row.staff_name)}</option>`).join("")}</select><small>Thumbprint ini akan direkod sebagai pengganti, bukan ketidakhadiran penjaga tersebut.</small></div>` : '<input type="hidden" name="replaced_roster_id" value="">'}
           ${isLateCheckIn ? `<div><label for="keeperLateReason">Sebab thumbprint masuk lewat</label><select id="keeperLateReason" name="late_reason" required><option value="">Pilih sebab</option><option value="garage_opened_late">Garaj lambat buka</option><option value="late_for_duty">Terlambat bertugas</option><option value="other">Lain-lain</option></select></div>
           <div id="keeperLateOtherWrap" hidden><label for="keeperLateReasonNote">Nyatakan sebab lain</label><input id="keeperLateReasonNote" name="late_reason_note" maxlength="500"></div>` : ""}
           <button class="btn primary" ${attendance ? "disabled" : ""}>Thumbprint Masuk</button>
         </form>
         <button id="keeperCheckOutButton" class="btn secondary" ${!attendance || attendance.checked_out_at || !canCheckOut ? "disabled" : ""}>Thumbprint Keluar</button>` : ""}
         <div id="keeperAttendanceResult" aria-live="polite"></div></section>` : ""}
-        ${!isClosedDay ? `<section class="section-card"><h2>Jadual Hari Ini</h2><div class="table-wrap"><table><thead><tr><th>Peranan</th><th>Nama</th></tr></thead><tbody>${todayRoster.map((row) => `<tr><td>${escapeHtml(dutyRoleLabel(row.duty_role))}</td><td>${escapeHtml(row.staff_name)}</td></tr>`).join("") || '<tr><td colspan="2">Tiada jadual</td></tr>'}</tbody></table></div></section>` : ""}
+        ${!isClosedDay ? `<section class="section-card"><h2>Jadual & Kehadiran Hari Ini</h2><div class="table-wrap"><table><thead><tr><th>Peranan</th><th>Nama bertugas</th><th>Status</th></tr></thead><tbody>${todayRoster.map((row) => {
+          const ownCheckIn = todayAttendance.find((entry) =>
+            !entry.replaced_staff_name && (entry.roster_id === row.id || entry.staff_name === row.staff_name)
+          );
+          const replacement = todayAttendance.find((entry) =>
+            entry.replaced_roster_id === row.id || entry.replaced_staff_name === row.staff_name
+          );
+          const replacementName = typeof replacement === "string" ? replacement : replacement?.staff_name;
+          const status = ownCheckIn ? `Telah thumbprint${staff.role === "admin" ? ` (${fmt(ownCheckIn.checked_in_at)})` : ""}` :
+            replacementName ? `Telah diganti — ${escapeHtml(replacementName)}` : "Belum thumbprint";
+          return `<tr><td>${escapeHtml(dutyRoleLabel(row.duty_role))}</td><td>${escapeHtml(row.staff_name)}</td><td>${status}</td></tr>`;
+        }).join("") || '<tr><td colspan="3">Tiada jadual</td></tr>'}</tbody></table></div></section>` : ""}
         <section class="section-card"><h2>Rekod Kehadiran${staff.role === "admin" ? " Semua Penjaga" : ""}</h2>
-        <div class="table-wrap"><table><thead><tr>${staff.role === "admin" ? "<th>Penjaga</th>" : ""}<th>Sesi</th><th>Tarikh Syif</th><th>Masuk</th><th>Sebab Lewat</th><th>Catatan Sebab Lain</th><th>Keluar</th></tr></thead><tbody>
-        ${attendanceRows.map((row) => `<tr>${staff.role === "admin" ? `<td>${escapeHtml(row.staff_name)} (${escapeHtml(row.staff_username)})</td>` : ""}<td>${escapeHtml(row.year_label)}</td><td>${escapeHtml(row.shift_date)}</td><td>${fmt(row.checked_in_at)}</td><td>${escapeHtml(lateReasonLabel(row.late_reason))}</td><td>${escapeHtml(row.late_reason_note || "-")}</td><td>${fmt(row.checked_out_at)}</td></tr>`).join("")}
+        <div class="table-wrap"><table><thead><tr>${staff.role === "admin" ? "<th>Penjaga</th>" : ""}<th>Sesi</th><th>Tarikh Syif</th><th>Masuk</th><th>Sebab Lewat</th><th>Penggantian</th><th>Catatan Sebab Lain</th><th>Keluar</th></tr></thead><tbody>
+        ${attendanceRows.map((row) => {
+          const replaced = row.replaced_staff_name || data.keeper_roster.find((entry) => entry.id === row.replaced_roster_id)?.staff_name;
+          return `<tr>${staff.role === "admin" ? `<td>${escapeHtml(row.staff_name)} (${escapeHtml(row.staff_username)})</td>` : ""}<td>${escapeHtml(row.year_label)}</td><td>${escapeHtml(row.shift_date)}</td><td>${fmt(row.checked_in_at)}</td><td>${escapeHtml(lateReasonLabel(row.late_reason))}</td><td>${replaced ? `Menggantikan ${escapeHtml(typeof replaced === "string" ? replaced : replaced.staff_name)}` : "-"}</td><td>${escapeHtml(row.late_reason_note || "-")}</td><td>${fmt(row.checked_out_at)}</td></tr>`;
+        }).join("")}
         </tbody></table></div></section>`;
       $("#keeperLateReason")?.addEventListener("change", (event) => {
         const otherWrap = $("#keeperLateOtherWrap");
@@ -462,6 +491,7 @@ if (!configured) {
         event.preventDefault();
         const fields = new FormData(event.currentTarget);
         const result = await api("keeper_check_in", {
+          replaced_roster_id: fields.get("replaced_roster_id") || "",
           late_reason: fields.get("late_reason") || "",
           late_reason_note: fields.get("late_reason_note") || "",
         });
@@ -474,7 +504,7 @@ if (!configured) {
         showMessage($("#keeperAttendanceResult"), result.message, result.ok);
       });
       const checkInReasonRequiredAtRender = isLateCheckIn;
-      if (staff.role === "penjaga" && myAssignment && !attendance && !isClosedDay && !isLateCheckIn ||
+      if (staff.role === "penjaga" && canCheckIn && !attendance && !isClosedDay && !isLateCheckIn ||
         staff.role === "penjaga" && attendance && !attendance.checked_out_at && !canCheckOut) {
         attendanceClockInterval = setInterval(() => {
           const nowLate = shiftSecondsNow() > shiftStartSeconds;
@@ -489,7 +519,7 @@ if (!configured) {
             attendanceClockInterval = undefined;
             return;
           }
-          button.disabled = shiftSecondsNow() <= 18 * 3600 + 50 * 60;
+          button.disabled = shiftSecondsNow() <= shiftEndSeconds;
           if (!button.disabled) {
             clearInterval(attendanceClockInterval);
             attendanceClockInterval = undefined;
