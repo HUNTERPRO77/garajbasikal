@@ -4,6 +4,7 @@ import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./supabase-config.js";
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 let qrCodeModule;
+let attendanceClockInterval;
 async function generateBikeQr(bikeNo, garageQr, width) {
   if (!garageQr) throw new Error("Kod QR garaj belum ditetapkan.");
   qrCodeModule ??= import("https://esm.sh/qrcode@1.5.4").then((module) => module.default);
@@ -400,6 +401,10 @@ if (!configured) {
   function renderTab(tab, data, staff) {
     const view = $("#staffView");
     if (!view) return;
+    if (attendanceClockInterval) {
+      clearInterval(attendanceClockInterval);
+      attendanceClockInterval = undefined;
+    }
     const records = [...data.records].sort((a, b) => String(b.borrowed_at).localeCompare(String(a.borrowed_at)));
     const groups = [...data.group_loans].map((loan) => ({
       ...loan,
@@ -441,6 +446,11 @@ if (!configured) {
       });
       $("#keeperCheckInForm")?.addEventListener("submit", async (event) => {
         event.preventDefault();
+        if (shiftSecondsNow() > 17 * 3600 + 15 * 60 && !$("#keeperLateReason")) {
+          renderTab("attendance", data, staff);
+          showMessage($("#keeperAttendanceResult"), "Thumbprint sudah selepas 5:15 petang. Sila pilih sebab lewat sebelum meneruskan.", false);
+          return;
+        }
         const fields = new FormData(event.currentTarget);
         const result = await api("keeper_check_in", {
           late_reason: fields.get("late_reason") || "",
@@ -454,6 +464,21 @@ if (!configured) {
         await loadStaff("attendance");
         showMessage($("#keeperAttendanceResult"), result.message, result.ok);
       });
+      if (staff.role === "penjaga" && attendance && !attendance.checked_out_at && !canCheckOut) {
+        attendanceClockInterval = setInterval(() => {
+          const button = $("#keeperCheckOutButton");
+          if (!button) {
+            clearInterval(attendanceClockInterval);
+            attendanceClockInterval = undefined;
+            return;
+          }
+          button.disabled = shiftSecondsNow() <= 18 * 3600 + 50 * 60;
+          if (!button.disabled) {
+            clearInterval(attendanceClockInterval);
+            attendanceClockInterval = undefined;
+          }
+        }, 1000);
+      }
       return;
     }
     if (tab === "overview") {
