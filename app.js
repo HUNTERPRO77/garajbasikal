@@ -379,7 +379,7 @@ if (!configured) {
         <div class="stat"><span>Hukuman aktif</span><b>${data.punishments.filter((row) => new Date(row.until) > new Date()).length}</b></div>
       </div>
       <nav class="tabs" id="staffTabs">
-        ${staff.role === "admin" ? '<button data-tab="overview" class="tab">Sistem</button><button data-tab="bikes" class="tab">Basikal</button><button data-tab="borrowers" class="tab">Peminjam</button>' : ""}
+        ${staff.role === "admin" ? '<button data-tab="overview" class="tab">Sistem</button><button data-tab="bikes" class="tab">Basikal</button><button data-tab="borrowers" class="tab">Peminjam</button><button data-tab="keeper-roster" class="tab">Jadual Penjaga</button>' : ""}
         <button data-tab="attendance" class="tab">Kehadiran</button>
         <button data-tab="records" class="tab active">Rekod</button>
         <button data-tab="notes" class="tab">Catatan</button>
@@ -412,30 +412,44 @@ if (!configured) {
     }));
     if (tab === "attendance") {
       const today = shiftDateToday();
-      const attendance = data.keeper_attendance.find((row) => row.staff_user_id === staff.user_id && row.shift_date === today);
+      const yearSettings = data.keeper_year_settings[0];
+      const weekday = shiftWeekdayToday();
+      const todayRoster = data.keeper_roster.filter((row) => row.active && row.duty_days.includes(weekday));
+      const myAssignment = todayRoster.find((row) =>
+        staff.role === "admin" ? row.staff_user_id === staff.user_id : row.assigned_to_me
+      );
+      const attendance = data.keeper_attendance.find((row) =>
+        row.staff_user_id === staff.user_id && row.shift_date === today && row.year_label === yearSettings.year_label
+      );
       const currentSeconds = staff.role === "penjaga" ? shiftSecondsNow() : 0;
-      const isLateCheckIn = currentSeconds > 17 * 3600 + 15 * 60;
-      const canCheckOut = currentSeconds > 18 * 3600 + 50 * 60;
+      const shiftStartSeconds = clockSeconds(yearSettings.shift_start);
+      const shiftEndSeconds = clockSeconds(yearSettings.shift_end);
+      const isClosedDay = weekday > 5;
+      const isLateCheckIn = currentSeconds > shiftStartSeconds;
+      const canCheckOut = currentSeconds > shiftEndSeconds;
       const attendanceRows = [...data.keeper_attendance].sort((a, b) =>
         `${b.shift_date} ${b.checked_in_at}`.localeCompare(`${a.shift_date} ${a.checked_in_at}`)
       );
       view.innerHTML = `${staff.role === "penjaga" ? `<section class="section-card"><h2>Thumbprint Kehadiran Penjaga</h2>
-        <p class="muted">Syif bermula 5:15 petang. Rekod masuk sebelum 5:15 petang; jika thumbprint masuk selepas waktu itu, pilih sebab. Thumbprint keluar dibuka selepas 6:50 petang.</p>
+        <p class="muted">Sesi ${escapeHtml(yearSettings.year_label)} · Tugas ${escapeHtml(formatClock(yearSettings.shift_start))}–${escapeHtml(formatClock(yearSettings.shift_end))}. Thumbprint masuk lewat memerlukan sebab. Thumbprint keluar dibuka selepas waktu tamat syif.</p>
+        <div class="mini-row"><span>Tugas hari ini</span><b>${isClosedDay ? "Garaj ditutup (Sabtu/Ahad)" : myAssignment ? `${escapeHtml(dutyRoleLabel(myAssignment.duty_role))} — ${escapeHtml(myAssignment.staff_name)}` : "Tiada jadual bertugas"}</b></div>
         <div class="mini-list">
           <div class="mini-row"><span>Tarikh syif</span><b>${escapeHtml(today)}</b></div>
           <div class="mini-row"><span>Thumbprint masuk</span><b>${attendance ? fmt(attendance.checked_in_at) : "Belum direkodkan"}</b></div>
           <div class="mini-row"><span>Thumbprint keluar</span><b>${attendance?.checked_out_at ? fmt(attendance.checked_out_at) : "Belum direkodkan"}</b></div>
         </div>
-        <form id="keeperCheckInForm" class="grid2">
+        ${isClosedDay ? '<div class="alert info">Garaj ditutup setiap Sabtu dan Ahad. Tiada thumbprint direkodkan.</div>' : !myAssignment ? '<div class="alert info">Hari ini bukan hari tugas akaun anda. Hubungi Admin jika jadual perlu diubah.</div>' : ""}
+        ${!isClosedDay && myAssignment ? `<form id="keeperCheckInForm" class="grid2">
           ${isLateCheckIn ? `<div><label for="keeperLateReason">Sebab thumbprint masuk lewat</label><select id="keeperLateReason" name="late_reason" required><option value="">Pilih sebab</option><option value="garage_opened_late">Garaj lambat buka</option><option value="late_for_duty">Terlambat bertugas</option><option value="other">Lain-lain</option></select></div>
           <div id="keeperLateOtherWrap" hidden><label for="keeperLateReasonNote">Nyatakan sebab lain</label><input id="keeperLateReasonNote" name="late_reason_note" maxlength="500"></div>` : ""}
           <button class="btn primary" ${attendance ? "disabled" : ""}>Thumbprint Masuk</button>
         </form>
-        <button id="keeperCheckOutButton" class="btn secondary" ${!attendance || attendance.checked_out_at || !canCheckOut ? "disabled" : ""}>Thumbprint Keluar</button>
+        <button id="keeperCheckOutButton" class="btn secondary" ${!attendance || attendance.checked_out_at || !canCheckOut ? "disabled" : ""}>Thumbprint Keluar</button>` : ""}
         <div id="keeperAttendanceResult" aria-live="polite"></div></section>` : ""}
+        ${!isClosedDay ? `<section class="section-card"><h2>Jadual Hari Ini</h2><div class="table-wrap"><table><thead><tr><th>Peranan</th><th>Nama</th></tr></thead><tbody>${todayRoster.map((row) => `<tr><td>${escapeHtml(dutyRoleLabel(row.duty_role))}</td><td>${escapeHtml(row.staff_name)}</td></tr>`).join("") || '<tr><td colspan="2">Tiada jadual</td></tr>'}</tbody></table></div></section>` : ""}
         <section class="section-card"><h2>Rekod Kehadiran${staff.role === "admin" ? " Semua Penjaga" : ""}</h2>
-        <div class="table-wrap"><table><thead><tr>${staff.role === "admin" ? "<th>Penjaga</th>" : ""}<th>Tarikh Syif</th><th>Masuk</th><th>Sebab Lewat</th><th>Catatan Sebab Lain</th><th>Keluar</th></tr></thead><tbody>
-        ${attendanceRows.map((row) => `<tr>${staff.role === "admin" ? `<td>${escapeHtml(row.staff_name)} (${escapeHtml(row.staff_username)})</td>` : ""}<td>${escapeHtml(row.shift_date)}</td><td>${fmt(row.checked_in_at)}</td><td>${escapeHtml(lateReasonLabel(row.late_reason))}</td><td>${escapeHtml(row.late_reason_note || "-")}</td><td>${fmt(row.checked_out_at)}</td></tr>`).join("")}
+        <div class="table-wrap"><table><thead><tr>${staff.role === "admin" ? "<th>Penjaga</th>" : ""}<th>Sesi</th><th>Tarikh Syif</th><th>Masuk</th><th>Sebab Lewat</th><th>Catatan Sebab Lain</th><th>Keluar</th></tr></thead><tbody>
+        ${attendanceRows.map((row) => `<tr>${staff.role === "admin" ? `<td>${escapeHtml(row.staff_name)} (${escapeHtml(row.staff_username)})</td>` : ""}<td>${escapeHtml(row.year_label)}</td><td>${escapeHtml(row.shift_date)}</td><td>${fmt(row.checked_in_at)}</td><td>${escapeHtml(lateReasonLabel(row.late_reason))}</td><td>${escapeHtml(row.late_reason_note || "-")}</td><td>${fmt(row.checked_out_at)}</td></tr>`).join("")}
         </tbody></table></div></section>`;
       $("#keeperLateReason")?.addEventListener("change", (event) => {
         const otherWrap = $("#keeperLateOtherWrap");
@@ -446,11 +460,6 @@ if (!configured) {
       });
       $("#keeperCheckInForm")?.addEventListener("submit", async (event) => {
         event.preventDefault();
-        if (shiftSecondsNow() > 17 * 3600 + 15 * 60 && !$("#keeperLateReason")) {
-          renderTab("attendance", data, staff);
-          showMessage($("#keeperAttendanceResult"), "Thumbprint sudah selepas 5:15 petang. Sila pilih sebab lewat sebelum meneruskan.", false);
-          return;
-        }
         const fields = new FormData(event.currentTarget);
         const result = await api("keeper_check_in", {
           late_reason: fields.get("late_reason") || "",
@@ -464,9 +473,17 @@ if (!configured) {
         await loadStaff("attendance");
         showMessage($("#keeperAttendanceResult"), result.message, result.ok);
       });
-      if (staff.role === "penjaga" && attendance && !attendance.checked_out_at && !canCheckOut) {
+      const checkInReasonRequiredAtRender = isLateCheckIn;
+      if (staff.role === "penjaga" && myAssignment && !attendance && !isClosedDay && !isLateCheckIn ||
+        staff.role === "penjaga" && attendance && !attendance.checked_out_at && !canCheckOut) {
         attendanceClockInterval = setInterval(() => {
+          const nowLate = shiftSecondsNow() > shiftStartSeconds;
+          if (!attendance && nowLate !== checkInReasonRequiredAtRender) {
+            renderTab("attendance", data, staff);
+            return;
+          }
           const button = $("#keeperCheckOutButton");
+          if (!attendance) return;
           if (!button) {
             clearInterval(attendanceClockInterval);
             attendanceClockInterval = undefined;
@@ -648,13 +665,21 @@ if (!configured) {
     }
     if (tab === "keeper-discipline" && staff.role === "admin") {
       const keepers = data.staff_profiles.filter((profile) => profile.role === "penjaga");
+      const lateCounts = new Map();
+      for (const row of data.keeper_attendance) {
+        if (row.late_reason === "late_for_duty" || row.late_reason === "other") {
+          lateCounts.set(row.staff_user_id, (lateCounts.get(row.staff_user_id) || 0) + 1);
+        }
+      }
       view.innerHTML = `<section class="section-card"><h2>Rekod Amaran / Kesalahan Penjaga</h2><p class="muted">Rekod ini untuk dokumentasi sahaja dan tidak menyekat akaun secara automatik.</p>
         <form id="keeperDisciplineForm" class="grid2"><div><label for="keeperDisciplineUser">Penjaga</label><select id="keeperDisciplineUser" name="keeper_user_id" required><option value="">Pilih penjaga</option>${keepers.map((keeper) => `<option value="${escapeHtml(keeper.user_id)}">${escapeHtml(keeper.display_name)} (${escapeHtml(keeper.username)})</option>`).join("")}</select></div>
         <div><label for="keeperDisciplineCategory">Jenis kesalahan / amaran</label><input id="keeperDisciplineCategory" name="category" maxlength="100" required></div>
         <div><label for="keeperDisciplineNote">Catatan</label><textarea id="keeperDisciplineNote" name="note" maxlength="1000" rows="3"></textarea></div>
         <div class="align-end"><button class="btn primary">Simpan Rekod</button></div></form><div id="keeperDisciplineResult" aria-live="polite"></div></section>
-        <section class="section-card"><h2>Sejarah Rekod Penjaga</h2><div class="table-wrap"><table><thead><tr><th>Masa</th><th>Penjaga</th><th>Jenis Kesalahan / Amaran</th><th>Catatan</th><th>Direkodkan Oleh</th></tr></thead><tbody>
-        ${[...data.keeper_discipline].sort((a, b) => b.created_at.localeCompare(a.created_at)).map((row) => `<tr><td>${fmt(row.created_at)}</td><td>${escapeHtml(row.keeper_name)} (${escapeHtml(row.keeper_username)})</td><td>${escapeHtml(row.category)}</td><td>${escapeHtml(row.note || "-")}</td><td>${escapeHtml(row.created_by_name)}</td></tr>`).join("")}
+        <section class="section-card"><h2>Kehadiran Lewat Mengikut Penjaga — ${escapeHtml(data.keeper_year_settings[0].year_label)}</h2><p class="muted">Hanya sebab “Terlambat bertugas” dan “Lain-lain” dikira lewat. “Garaj lambat buka” dikira kehadiran baik.</p>
+        <div class="table-wrap"><table><thead><tr><th>Penjaga</th><th>Bilangan Kehadiran Lewat</th></tr></thead><tbody>${keepers.map((keeper) => `<tr><td>${escapeHtml(keeper.display_name)} (${escapeHtml(keeper.username)})</td><td>${lateCounts.get(keeper.user_id) || 0}</td></tr>`).join("")}</tbody></table></div></section>
+        <section class="section-card"><h2>Sejarah Amaran / Kesalahan Penjaga</h2><div class="table-wrap"><table><thead><tr><th>Masa</th><th>Penjaga</th><th>Jenis Kesalahan / Amaran</th><th>Catatan</th><th>Direkodkan Oleh</th><th>Kehadiran Lewat (Sesi Semasa)</th></tr></thead><tbody>
+        ${[...data.keeper_discipline].sort((a, b) => b.created_at.localeCompare(a.created_at)).map((row) => `<tr><td>${fmt(row.created_at)}</td><td>${escapeHtml(row.keeper_name)} (${escapeHtml(row.keeper_username)})</td><td>${escapeHtml(row.category)}</td><td>${escapeHtml(row.note || "-")}</td><td>${escapeHtml(row.created_by_name)}</td><td>${lateCounts.get(row.keeper_user_id) || 0}</td></tr>`).join("")}
         </tbody></table></div></section>`;
       $("#keeperDisciplineForm").addEventListener("submit", async (event) => {
         event.preventDefault();
@@ -663,6 +688,100 @@ if (!configured) {
         if (result.ok) await loadStaff("keeper-discipline");
         showMessage($("#keeperDisciplineResult"), result.message, result.ok);
       });
+      return;
+    }
+    if (tab === "keeper-roster" && staff.role === "admin") {
+      const year = data.keeper_year_settings[0];
+      const profiles = data.staff_profiles.filter((profile) => profile.role === "penjaga" && profile.active);
+      const rosters = [...data.keeper_roster].sort((a, b) =>
+        a.duty_role.localeCompare(b.duty_role) || a.staff_name.localeCompare(b.staff_name)
+      );
+      const weekdays = [{ id: 1, name: "Isnin" }, { id: 2, name: "Selasa" }, { id: 3, name: "Rabu" }, { id: 4, name: "Khamis" }, { id: 5, name: "Jumaat" }];
+      const schedule = weekdays.map((day) => ({
+        ...day,
+        committee: data.keeper_roster.filter((row) => row.active && row.duty_role === "committee" && row.duty_days.includes(day.id)),
+        monitor: data.keeper_roster.filter((row) => row.active && row.duty_role === "monitor" && row.duty_days.includes(day.id)),
+      }));
+      const rowMarkup = (entry = {}) => `<fieldset class="section-card roster-entry"><div class="grid2">
+        <div><label>Nama penjaga</label><input name="staff_name" maxlength="120" value="${escapeHtml(entry.staff_name || "")}" required></div>
+        <div><label>Akaun log masuk (perlu dipautkan untuk thumbprint)</label><select name="staff_user_id"><option value="">Belum dipautkan</option>${profiles.map((profile) => `<option value="${escapeHtml(profile.user_id)}" data-display-name="${escapeHtml(profile.display_name)}" ${entry.staff_user_id === profile.user_id ? "selected" : ""}>${escapeHtml(profile.display_name)} (${escapeHtml(profile.username)})</option>`).join("")}</select></div>
+        <div><label>Peranan jadual</label><select name="duty_role"><option value="committee" ${entry.duty_role !== "monitor" ? "selected" : ""}>Ahli jawatankuasa</option><option value="monitor" ${entry.duty_role === "monitor" ? "selected" : ""}>Pemantau keseluruhan</option></select></div>
+        <div><label>Hari bertugas</label><div class="weekday-options">${weekdays.map((day) => `<label><input type="checkbox" name="duty_day" value="${day.id}" ${entry.duty_days?.includes(day.id) ? "checked" : ""}> ${day.name}</label>`).join("")}</div></div>
+        <button type="button" class="btn secondary" data-remove-roster>Buang daripada jadual</button></div></fieldset>`;
+      view.innerHTML = `<section class="section-card"><h2>Jadual Bertugas — Sesi ${escapeHtml(year.year_label)}</h2>
+        ${rosters.filter((entry) => !entry.staff_user_id).length ? `<div class="alert info">${rosters.filter((entry) => !entry.staff_user_id).length} ahli belum dipautkan kepada akaun penjaga. Cipta akaun melalui tab Sistem kemudian pautkan di bawah; ahli yang belum dipautkan tidak boleh thumbprint.</div>` : ""}
+        <p class="muted">Jadual daripada senarai rasmi. Admin boleh tambah, buang, pautkan akaun, menukar peranan dan mengubah hari bertugas. Sabtu dan Ahad ditetapkan sebagai hari tutup.</p>
+        <div class="table-wrap"><table><thead><tr><th>Hari</th><th>Ahli Jawatankuasa</th><th>Pemantau</th></tr></thead><tbody>
+        ${schedule.map((day) => `<tr><td>${day.name}</td><td>${day.committee.map((row) => escapeHtml(row.staff_name)).join("<br>") || "-"}</td><td>${day.monitor.map((row) => escapeHtml(row.staff_name)).join("<br>") || "-"}</td></tr>`).join("")}
+        <tr><td>Sabtu</td><td colspan="2">Garaj ditutup</td></tr><tr><td>Ahad</td><td colspan="2">Garaj ditutup</td></tr>
+        </tbody></table></div></section>
+        <section class="section-card"><h2>Masa Syif</h2><form id="keeperScheduleForm" class="grid2">
+        <div><label for="keeperShiftStart">Masa mula</label><input type="time" id="keeperShiftStart" name="shift_start" value="${escapeHtml(String(year.shift_start).slice(0, 5))}" required></div>
+        <div><label for="keeperShiftEnd">Masa tamat</label><input type="time" id="keeperShiftEnd" name="shift_end" value="${escapeHtml(String(year.shift_end).slice(0, 5))}" required></div>
+        <button class="btn primary">Simpan Masa Syif</button></form></section>
+        <section class="section-card"><h2>Urus Nama dan Hari Tugas</h2><form id="keeperRosterForm">${rosters.map((entry) => rowMarkup(entry)).join("")}<div id="newKeeperRosterRows"></div>
+        <button type="button" id="addKeeperRoster" class="btn secondary">Tambah ahli/pemantau</button> <button class="btn primary">Simpan Jadual Penjaga</button>
+        </form><div id="keeperRosterResult" aria-live="polite"></div></section>
+        <section class="section-card"><h2>Tutup Sesi dan Buka Tahun Baharu</h2>
+        <p class="muted">Sesi semasa: <b>${escapeHtml(year.year_label)}</b>. Apabila Admin membuka tahun baharu, sistem akan mengarkibkan rekod operasi, pinjaman (termasuk aktif), kehadiran, amaran, audit dan jadual sesi lama. Rekod operasi sesi baharu bermula kosong; akaun staf, senarai basikal dan jadual semasa dikekalkan. Basikal berstatus dipinjam akan ditetapkan tersedia. Arkib kekal dan boleh dimuat turun oleh Admin.</p>
+        <form id="keeperYearOpenForm" class="grid2"><div><label for="newKeeperYear">Nama sesi/tahun baharu</label><input id="newKeeperYear" name="year_label" value="${escapeHtml(suggestNextYear(year.year_label))}" maxlength="32" required></div><button class="btn primary">Arkib Sesi Lama / Buka Tahun Baharu</button></form>
+        <div id="keeperYearResult" aria-live="polite"></div></section>
+        <section class="section-card"><h2>Arkib Sesi Lama</h2><div class="table-wrap"><table><thead><tr><th>Sesi</th><th>Masa Ditutup</th><th>Admin</th><th>Data</th></tr></thead><tbody>${data.keeper_year_archives.map((archive) => `<tr><td>${escapeHtml(archive.year_label)}</td><td>${fmt(archive.closed_at)}</td><td>${escapeHtml(archive.closed_by_name)}</td><td><button class="btn small secondary" data-keeper-archive="${escapeHtml(archive.id)}">Muat Turun JSON</button></td></tr>`).join("") || '<tr><td colspan="4">Tiada arkib sesi lama.</td></tr>'}</tbody></table></div></section>`;
+      const rosterForm = $("#keeperRosterForm");
+      $("#addKeeperRoster").addEventListener("click", () => {
+        $("#newKeeperRosterRows").insertAdjacentHTML("beforeend", rowMarkup());
+      });
+      rosterForm.addEventListener("click", (event) => {
+        if (event.target.closest("[data-remove-roster]")) event.target.closest(".roster-entry").remove();
+      });
+      rosterForm.addEventListener("change", (event) => {
+        if (event.target.matches('select[name="staff_user_id"]')) {
+          const option = event.target.selectedOptions[0];
+          if (option.value) event.target.closest(".roster-entry").querySelector('input[name="staff_name"]').value = option.dataset.displayName;
+        }
+      });
+      rosterForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const entries = [...rosterForm.querySelectorAll(".roster-entry")].map((row) => ({
+          staff_name: row.querySelector('[name="staff_name"]').value.trim(),
+          staff_user_id: row.querySelector('[name="staff_user_id"]').value || null,
+          duty_role: row.querySelector('[name="duty_role"]').value,
+          duty_days: [...row.querySelectorAll('[name="duty_day"]:checked')].map((input) => Number(input.value)),
+        }));
+        const result = await api("keeper_roster_replace", { entries });
+        if (result.ok) await loadStaff("keeper-roster");
+        showMessage($("#keeperRosterResult"), result.message, result.ok);
+      });
+      $("#keeperScheduleForm").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const fields = Object.fromEntries(new FormData(event.currentTarget));
+        const result = await api("keeper_schedule_update", fields);
+        if (result.ok) await loadStaff("keeper-roster");
+        showMessage($("#keeperRosterResult"), result.message, result.ok);
+      });
+      $("#keeperYearOpenForm").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const fields = Object.fromEntries(new FormData(event.currentTarget));
+        if (prompt(`Tindakan ini akan mengarkibkan semua data dan membuka sesi baharu.\nTaip ARKIB ${year.year_label} untuk mengesahkan:`) !== `ARKIB ${year.year_label}`) return;
+        const result = await api("keeper_year_open", fields);
+        if (result.ok) await loadStaff("keeper-roster");
+        showMessage($("#keeperYearResult"), result.message, result.ok);
+      });
+      $$("[data-keeper-archive]").forEach((button) => button.addEventListener("click", async () => {
+        const result = await api("keeper_archive_data", { archive_id: button.dataset.keeperArchive });
+        if (!result.ok) {
+          alert(result.message);
+          return;
+        }
+        const archive = result.archive;
+        const blob = new Blob([JSON.stringify(archive, null, 2)], { type: "application/json;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `arkib_garaj_basikal_${archive.year_label.replace(/[^A-Za-z0-9_-]/g, "_")}.json`;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }));
       return;
     }
     if (tab === "stats") {
@@ -758,6 +877,14 @@ if (!configured) {
     return `${value("year")}-${value("month")}-${value("day")}`;
   }
 
+  function shiftWeekdayToday() {
+    const weekday = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Kuala_Lumpur",
+      weekday: "short",
+    }).format(new Date());
+    return ({ Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 })[weekday] || 7;
+  }
+
   function shiftSecondsNow() {
     const parts = new Intl.DateTimeFormat("en-GB", {
       timeZone: "Asia/Kuala_Lumpur",
@@ -769,6 +896,21 @@ if (!configured) {
     return Number(parts.find((part) => part.type === "hour")?.value || 0) * 3600 +
       Number(parts.find((part) => part.type === "minute")?.value || 0) * 60 +
       Number(parts.find((part) => part.type === "second")?.value || 0);
+  }
+
+  function clockSeconds(value) {
+    const [hours, minutes, seconds = "0"] = String(value || "").split(":");
+    return Number(hours) * 3600 + Number(minutes) * 60 + Number(seconds);
+  }
+
+  function dutyRoleLabel(role) {
+    return role === "monitor" ? "Pemantau keseluruhan" : "Ahli jawatankuasa";
+  }
+
+  function suggestNextYear(value) {
+    const match = /^(\d{4})\s*[/–-]\s*(\d{4})$/.exec(String(value || ""));
+    if (!match) return "";
+    return `${Number(match[1]) + 1}/${Number(match[2]) + 1}`;
   }
 
   function lateReasonLabel(reason) {
