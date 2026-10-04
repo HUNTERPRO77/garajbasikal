@@ -753,8 +753,8 @@ if (!configured) {
         <button type="button" id="addKeeperRoster" class="btn secondary">Tambah ahli/pemantau</button> <button class="btn primary">Simpan Jadual Penjaga</button>
         </form><div id="keeperRosterResult" aria-live="polite"></div></section>
         <section class="section-card"><h2>Tutup Sesi dan Buka Tahun Baharu</h2>
-        <p class="muted">Sesi semasa: <b>${escapeHtml(year.year_label)}</b>. Apabila Admin membuka tahun baharu, sistem akan mengarkibkan rekod operasi, pinjaman (termasuk aktif), kehadiran, amaran, audit dan jadual sesi lama. Rekod operasi sesi baharu bermula kosong; akaun staf, senarai basikal dan jadual semasa dikekalkan. Basikal berstatus dipinjam akan ditetapkan tersedia. Arkib kekal dan boleh dimuat turun oleh Admin.</p>
-        <form id="keeperYearOpenForm" class="grid2"><div><label for="newKeeperYear">Nama sesi/tahun baharu</label><input id="newKeeperYear" name="year_label" value="${escapeHtml(suggestNextYear(year.year_label))}" maxlength="32" required></div><button class="btn primary">Arkib Sesi Lama / Buka Tahun Baharu</button></form>
+        <p class="muted">Kitaran tahun bertugas semasa: <b>${escapeHtml(year.year_label)}</b>. Kitaran ini tidak mengikut tahun kalendar dan tidak bertukar secara automatik; tarikh serta masa setiap rekod tetap menggunakan tarikh dan masa sebenar Malaysia. Apabila kitaran tugas tamat, Admin perlu menekan butang di bawah dan menetapkan nama kitaran seterusnya. Sistem akan mengarkibkan rekod operasi, pinjaman (termasuk aktif), kehadiran, amaran, audit dan jadual sesi lama, kemudian membuka kitaran baharu dengan rekod operasi kosong. Akaun staf, senarai basikal dan jadual semasa dikekalkan; basikal berstatus dipinjam akan ditetapkan tersedia. Arkib kekal dan boleh dimuat turun oleh Admin.</p>
+        <form id="keeperYearOpenForm" class="grid2"><div><label for="newKeeperYear">Nama kitaran/tahun bertugas baharu</label><input id="newKeeperYear" name="year_label" value="${escapeHtml(suggestNextYear(year.year_label))}" maxlength="32" required></div><button class="btn primary">Tamatkan Kitaran / Buka Tahun Baharu</button></form>
         <div id="keeperYearResult" aria-live="polite"></div></section>
         <section class="section-card"><h2>Arkib Sesi Lama</h2><div class="table-wrap"><table><thead><tr><th>Sesi</th><th>Masa Ditutup</th><th>Admin</th><th>Data</th></tr></thead><tbody>${data.keeper_year_archives.map((archive) => `<tr><td>${escapeHtml(archive.year_label)}</td><td>${fmt(archive.closed_at)}</td><td>${escapeHtml(archive.closed_by_name)}</td><td><button class="btn small secondary" data-keeper-archive="${escapeHtml(archive.id)}">Muat Turun JSON</button></td></tr>`).join("") || '<tr><td colspan="4">Tiada arkib sesi lama.</td></tr>'}</tbody></table></div></section>`;
       const rosterForm = $("#keeperRosterForm");
@@ -792,7 +792,7 @@ if (!configured) {
       $("#keeperYearOpenForm").addEventListener("submit", async (event) => {
         event.preventDefault();
         const fields = Object.fromEntries(new FormData(event.currentTarget));
-        if (prompt(`Tindakan ini akan mengarkibkan semua data dan membuka sesi baharu.\nTaip ARKIB ${year.year_label} untuk mengesahkan:`) !== `ARKIB ${year.year_label}`) return;
+        if (prompt(`Tindakan ini akan menamatkan kitaran ${year.year_label}, mengarkibkan data dan membuka kitaran baharu.\nTaip TAMATKAN ${year.year_label} untuk mengesahkan:`) !== `TAMATKAN ${year.year_label}`) return;
         const result = await api("keeper_year_open", fields);
         if (result.ok) await loadStaff("keeper-roster");
         showMessage($("#keeperYearResult"), result.message, result.ok);
