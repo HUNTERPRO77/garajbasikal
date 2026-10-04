@@ -3,6 +3,16 @@ import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./supabase-config.js";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+let qrCodeModule;
+async function generateBikeQr(bikeNo, garageQr, width) {
+  if (!garageQr) throw new Error("Kod QR garaj belum ditetapkan.");
+  qrCodeModule ??= import("https://esm.sh/qrcode@1.5.4").then((module) => module.default);
+  const QRCode = await qrCodeModule;
+  const qrUrl = new URL(location.pathname, location.origin);
+  qrUrl.searchParams.set("garage", garageQr);
+  qrUrl.searchParams.set("bike", bikeNo);
+  return QRCode.toDataURL(qrUrl.toString(), { width, margin: 2 });
+}
 document.addEventListener("error", (event) => {
   const image = event.target;
   if (image instanceof HTMLImageElement && !image.dataset.fallback) {
@@ -354,7 +364,7 @@ if (!configured) {
     }
   });
 
-  function renderDashboard(data, staff) {
+  function renderDashboard(data, staff, initialTab = "records") {
     const dashboard = $("#dashboard");
     $("#loginCard").hidden = true;
     dashboard.hidden = false;
@@ -382,7 +392,8 @@ if (!configured) {
       $$("#staffTabs .tab").forEach((tab) => tab.classList.toggle("active", tab === button));
       renderTab(button.dataset.tab, data, staff);
     }));
-    renderTab("records", data, staff);
+    $$("#staffTabs .tab").forEach((button) => button.classList.toggle("active", button.dataset.tab === initialTab));
+    renderTab(initialTab, data, staff);
   }
 
   function renderTab(tab, data, staff) {
@@ -443,10 +454,21 @@ if (!configured) {
     }
     if (tab === "bikes") {
       view.innerHTML = `<section class="section-card"><h2>Pengurusan Basikal</h2><p class="muted">Admin boleh menukar nombor basikal apabila tidak sedang dipinjam. Sejarah pinjaman akan ikut nombor baharu; selepas tukar nombor, cetak dan ganti QR lama.</p>
-        <div class="qr-grid">${data.bikes.map((bike) => `<div class="qr-item"><img src="qr-placeholder.svg" data-qr-src="qrs/${escapeHtml(bike.bike_no)}.png" alt="QR ${escapeHtml(bike.bike_no)}"><h3>${escapeHtml(bike.bike_no)}</h3>
+        <div class="qr-grid">${data.bikes.map((bike) => `<div class="qr-item"><img src="qr-placeholder.svg" class="bike-qr" data-bike-qr="${escapeHtml(bike.bike_no)}" alt="QR ${escapeHtml(bike.bike_no)}"><p class="muted qr-error" data-qr-error hidden></p><h3>${escapeHtml(bike.bike_no)}</h3>
           <span class="badge ${bike.status === "available" ? "green" : bike.status === "borrowed" ? "blue" : bike.status === "damaged" ? "red" : "gray"}">${escapeHtml(bike.status.toUpperCase())}</span>
           <form class="bike-form" data-bike="${escapeHtml(bike.bike_no)}"><label>Nombor basikal</label><input name="new_bike_no" value="${escapeHtml(bike.bike_no)}" maxlength="20" pattern="[A-Za-z0-9][A-Za-z0-9_\\-]{0,19}" title="1–20 aksara: huruf, nombor, sempang atau garis bawah" required><select name="status"><option value="available" ${bike.status === "available" ? "selected" : ""}>Tersedia</option><option value="damaged" ${bike.status === "damaged" ? "selected" : ""}>Rosak</option><option value="inactive" ${bike.status === "inactive" ? "selected" : ""}>Tidak digunakan</option></select>
           <input name="damage_note" value="${escapeHtml(bike.damage_note)}" placeholder="Catatan"><button class="btn small primary">Simpan</button></form></div>`).join("")}</div></section>`;
+      $$(".bike-qr", view).forEach(async (image) => {
+        try {
+          image.src = await generateBikeQr(image.dataset.bikeQr, data.app_settings[0].garage_qr, 240);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Ralat tidak diketahui";
+          const errorNotice = image.parentElement.querySelector("[data-qr-error]");
+          errorNotice.textContent = `QR gagal dijana: ${message}`;
+          errorNotice.hidden = false;
+          console.error(`QR basikal ${image.dataset.bikeQr} gagal dijana:`, error);
+        }
+      });
       $$(".bike-form").forEach((form) => form.addEventListener("submit", async (event) => {
         event.preventDefault();
         const fields = Object.fromEntries(new FormData(form));
@@ -455,14 +477,10 @@ if (!configured) {
         const result = await api("bike_update", { bike_no: bikeNo, ...fields, new_bike_no: newBikeNo });
         alert(result.message);
         if (!result.ok) return;
-        await loadStaff();
+        await loadStaff(newBikeNo !== bikeNo ? "bikes" : "records");
         if (newBikeNo !== bikeNo) {
           try {
-            const QRCode = (await import("https://esm.sh/qrcode@1.5.4")).default;
-            const qrUrl = new URL(location.pathname, location.origin);
-            qrUrl.searchParams.set("garage", data.app_settings[0].garage_qr);
-            qrUrl.searchParams.set("bike", newBikeNo);
-            const imageUrl = await QRCode.toDataURL(qrUrl.toString(), { width: 480, margin: 2 });
+            const imageUrl = await generateBikeQr(newBikeNo, data.app_settings[0].garage_qr, 480);
             const download = document.createElement("a");
             download.href = imageUrl;
             download.download = `QR_${newBikeNo}.png`;
@@ -746,10 +764,10 @@ if (!configured) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  async function loadStaff() {
+  async function loadStaff(initialTab = "records") {
     const result = await api("staff_data");
     if (!result.ok) throw new Error(result.message);
-    renderDashboard(result.data, result.staff);
+    renderDashboard(result.data, result.staff, initialTab);
   }
 
   $("#loginForm").addEventListener("submit", async (event) => {
