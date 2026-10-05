@@ -26,6 +26,7 @@ button,.btn{border:0;cursor:pointer;border-radius:11px;padding:12px 15px;font-we
 button:disabled{opacity:.6;cursor:wait}
 .primary{background:#162a55;color:white}
 .secondary{background:#eef2f7;color:#22304a}
+.btn.danger{background:#fff0f0;color:#9c2020}
 .full{width:100%;margin-top:14px}
 .staff-section{padding:30px 0 80px;background:#111a2a}
 .login-card{max-width:520px;margin:0 auto}

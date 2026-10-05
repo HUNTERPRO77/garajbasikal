@@ -541,12 +541,13 @@ if (!configured) {
           <form id="staffCreateForm" class="grid2"><div><label>Username</label><input name="username" required minlength="3" maxlength="32" pattern="[A-Za-z0-9][A-Za-z0-9._-]{2,31}" autocomplete="off"></div><div><label>Nama paparan</label><input name="display_name" required maxlength="100"></div>
           <div><label>Peranan</label><select name="role"><option value="penjaga">Penjaga</option><option value="admin">Admin</option></select></div><div><label>Kata laluan awal (12-72 aksara)</label><input name="password" type="password" required minlength="12" maxlength="72" autocomplete="new-password"></div>
           <div class="align-end"><button class="btn primary">Cipta Akaun</button></div></form>
-          <div class="table-wrap"><table><thead><tr><th>Username</th><th>Nama</th><th>Peranan</th><th>Status</th><th>Tetapkan Semula Kata Laluan</th><th>Akses</th></tr></thead><tbody>
+          <div class="table-wrap"><table><thead><tr><th>Username</th><th>Nama</th><th>Peranan</th><th>Status</th><th>Tetapkan Semula Kata Laluan</th><th>Akses</th><th>Padam</th></tr></thead><tbody>
           ${data.staff_profiles.map((profile) => `<tr><td>${escapeHtml(profile.username)}</td><td>${escapeHtml(profile.display_name)}</td>
             <td><select data-staff-role="${escapeHtml(profile.user_id)}"><option value="admin" ${profile.role === "admin" ? "selected" : ""}>Admin</option><option value="penjaga" ${profile.role === "penjaga" ? "selected" : ""}>Penjaga</option></select></td>
             <td>${profile.active ? "Aktif" : "Nyahaktif"}</td>
             <td><form class="staff-password-form" data-staff-password="${escapeHtml(profile.user_id)}"><input name="password" type="password" required minlength="12" maxlength="72" autocomplete="new-password" aria-label="Kata laluan baharu untuk ${escapeHtml(profile.username)}"><button class="btn small secondary">Tetapkan</button></form></td>
-            <td><button class="btn small secondary" data-staff-toggle="${escapeHtml(profile.user_id)}" data-active="${!profile.active}">${profile.active ? "Nyahaktif" : "Aktifkan"}</button></td></tr>`).join("")}
+            <td><button class="btn small secondary" data-staff-toggle="${escapeHtml(profile.user_id)}" data-active="${!profile.active}">${profile.active ? "Nyahaktif" : "Aktifkan"}</button></td>
+            <td>${profile.role === "penjaga" ? `<button class="btn small danger" data-staff-delete="${escapeHtml(profile.user_id)}" data-username="${escapeHtml(profile.username)}">Padam Akaun</button>` : "-"}</td></tr>`).join("")}
           </tbody></table></div></section>`;
       $("#staffCreateForm").addEventListener("submit", async (event) => {
         event.preventDefault();
@@ -571,6 +572,13 @@ if (!configured) {
       $$("[data-staff-toggle]").forEach((button) => button.addEventListener("click", async () => {
         const role = $(`[data-staff-role="${button.dataset.staffToggle}"]`).value;
         const result = await api("staff_update", { user_id: button.dataset.staffToggle, role, active: button.dataset.active === "true" });
+        alert(result.message);
+        if (result.ok) await loadStaff();
+      }));
+      $$("[data-staff-delete]").forEach((button) => button.addEventListener("click", async () => {
+        const username = button.dataset.username;
+        if (!confirm(`Padam akaun penjaga "${username}" secara kekal? Rekod kehadiran dan disiplin lama akan dikekalkan tanpa pautan ke akaun ini.`)) return;
+        const result = await api("staff_delete", { user_id: button.dataset.staffDelete });
         alert(result.message);
         if (result.ok) await loadStaff();
       }));
@@ -697,7 +705,7 @@ if (!configured) {
       const keepers = data.staff_profiles.filter((profile) => profile.role === "penjaga");
       const lateCounts = new Map();
       for (const row of data.keeper_attendance) {
-        if (row.late_reason === "late_for_duty" || row.late_reason === "other") {
+        if (row.late_reason === "late_for_duty") {
           lateCounts.set(row.staff_user_id, (lateCounts.get(row.staff_user_id) || 0) + 1);
         }
       }
@@ -706,7 +714,7 @@ if (!configured) {
         <div><label for="keeperDisciplineCategory">Jenis kesalahan / amaran</label><input id="keeperDisciplineCategory" name="category" maxlength="100" required></div>
         <div><label for="keeperDisciplineNote">Catatan</label><textarea id="keeperDisciplineNote" name="note" maxlength="1000" rows="3"></textarea></div>
         <div class="align-end"><button class="btn primary">Simpan Rekod</button></div></form><div id="keeperDisciplineResult" aria-live="polite"></div></section>
-        <section class="section-card"><h2>Kehadiran Lewat Mengikut Penjaga — ${escapeHtml(data.keeper_year_settings[0].year_label)}</h2><p class="muted">Hanya sebab “Terlambat bertugas” dan “Lain-lain” dikira lewat. “Garaj lambat buka” dikira kehadiran baik.</p>
+        <section class="section-card"><h2>Kehadiran Lewat Mengikut Penjaga — ${escapeHtml(data.keeper_year_settings[0].year_label)}</h2><p class="muted">“Terlambat bertugas” dikira lewat. “Garaj lambat buka” dikira kehadiran baik. “Lain-lain” tidak dikira lewat atau baik.</p>
         <div class="table-wrap"><table><thead><tr><th>Penjaga</th><th>Bilangan Kehadiran Lewat</th></tr></thead><tbody>${keepers.map((keeper) => `<tr><td>${escapeHtml(keeper.display_name)} (${escapeHtml(keeper.username)})</td><td>${lateCounts.get(keeper.user_id) || 0}</td></tr>`).join("")}</tbody></table></div></section>
         <section class="section-card"><h2>Sejarah Amaran / Kesalahan Penjaga</h2><div class="table-wrap"><table><thead><tr><th>Masa</th><th>Penjaga</th><th>Jenis Kesalahan / Amaran</th><th>Catatan</th><th>Direkodkan Oleh</th><th>Kehadiran Lewat (Sesi Semasa)</th></tr></thead><tbody>
         ${[...data.keeper_discipline].sort((a, b) => b.created_at.localeCompare(a.created_at)).map((row) => `<tr><td>${fmt(row.created_at)}</td><td>${escapeHtml(row.keeper_name)} (${escapeHtml(row.keeper_username)})</td><td>${escapeHtml(row.category)}</td><td>${escapeHtml(row.note || "-")}</td><td>${escapeHtml(row.created_by_name)}</td><td>${lateCounts.get(row.keeper_user_id) || 0}</td></tr>`).join("")}
