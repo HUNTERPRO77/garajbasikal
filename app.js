@@ -730,6 +730,7 @@ if (!configured) {
     }
     if (tab === "keeper-roster" && staff.role === "admin") {
       const year = data.keeper_year_settings[0];
+      const currentArchive = data.keeper_year_archives.find((archive) => archive.year_label === year.year_label);
       const profiles = data.staff_profiles.filter((profile) => profile.role === "penjaga" && profile.active);
       const rosters = [...data.keeper_roster].sort((a, b) =>
         a.duty_role.localeCompare(b.duty_role) || a.staff_name.localeCompare(b.staff_name)
@@ -761,10 +762,11 @@ if (!configured) {
         <button type="button" id="addKeeperRoster" class="btn secondary">Tambah ahli/pemantau</button> <button class="btn primary">Simpan Jadual Penjaga</button>
         </form><div id="keeperRosterResult" aria-live="polite"></div></section>
         <section class="section-card"><h2>Tutup Sesi dan Buka Tahun Baharu</h2>
-        <p class="muted">Kitaran tahun bertugas semasa: <b>${escapeHtml(year.year_label)}</b>. Kitaran ini tidak mengikut tahun kalendar dan tidak bertukar secara automatik; tarikh serta masa setiap rekod tetap menggunakan tarikh dan masa sebenar Malaysia. Apabila kitaran tugas tamat, Admin perlu menekan butang di bawah dan menetapkan nama kitaran seterusnya. Sistem akan mengarkibkan rekod operasi, pinjaman (termasuk aktif), kehadiran, amaran, audit dan jadual sesi lama, kemudian membuka kitaran baharu dengan rekod operasi kosong. Akaun staf, senarai basikal dan jadual semasa dikekalkan; basikal berstatus dipinjam akan ditetapkan tersedia. Arkib kekal dan boleh dimuat turun oleh Admin.</p>
-        <form id="keeperYearOpenForm" class="grid2"><div><label for="newKeeperYear">Nama kitaran/tahun bertugas baharu</label><input id="newKeeperYear" name="year_label" value="${escapeHtml(suggestNextYear(year.year_label))}" maxlength="32" required></div><button class="btn primary">Tamatkan Kitaran / Buka Tahun Baharu</button></form>
+        <p class="muted">Kitaran bertugas semasa: <b>${escapeHtml(year.year_label)}</b>. Sediakan dan muat turun arkib dahulu. Selepas Admin mengesahkan fail sudah disimpan di luar Supabase, sistem mengosongkan arkib serta rekod operasi, memadam akaun Penjaga, dan membuka kitaran baharu. Akaun Admin, jadual (nama/peranan/hari tanpa pautan akaun), basikal dan tetapan sistem dikekalkan. Basikal yang sedang dipinjam ditetapkan tersedia. Pemadaman arkib membebaskan ruang storan pangkalan data.</p>
+        <form id="keeperYearOpenForm" class="grid2"><div><label for="newKeeperYear">Nama kitaran/tahun bertugas baharu</label><input id="newKeeperYear" name="year_label" value="${escapeHtml(suggestNextYear(year.year_label))}" maxlength="32" required></div><button class="btn primary" ${currentArchive ? "disabled" : ""}>${currentArchive ? "Arkib telah disediakan — muat turun di bawah" : "1. Sediakan & Muat Turun Arkib"}</button></form>
+        ${currentArchive ? '<div class="alert info">Arkib kitaran semasa telah disediakan sementara. Muat turun fail dan pastikan ia disimpan sebelum menekan butang pemadaman di bawah.</div>' : ""}
         <div id="keeperYearResult" aria-live="polite"></div></section>
-        <section class="section-card"><h2>Arkib Sesi Lama</h2><div class="table-wrap"><table><thead><tr><th>Sesi</th><th>Masa Ditutup</th><th>Admin</th><th>Data</th></tr></thead><tbody>${data.keeper_year_archives.map((archive) => `<tr><td>${escapeHtml(archive.year_label)}</td><td>${fmt(archive.closed_at)}</td><td>${escapeHtml(archive.closed_by_name)}</td><td><button class="btn small secondary" data-keeper-archive="${escapeHtml(archive.id)}">Muat Turun JSON</button></td></tr>`).join("") || '<tr><td colspan="4">Tiada arkib sesi lama.</td></tr>'}</tbody></table></div></section>`;
+        <section class="section-card"><h2>Arkib Sementara / Arkib Lama</h2><p class="muted">Arkib yang disimpan sebelum ini turut dipadam daripada Supabase apabila kitaran baharu dibuka. Muat turun mana-mana fail lama yang mahu disimpan di luar sistem terlebih dahulu.</p><div class="table-wrap"><table><thead><tr><th>Sesi</th><th>Masa Arkib</th><th>Admin</th><th>Muat Turun</th><th>Tamatkan & Kosongkan</th></tr></thead><tbody>${data.keeper_year_archives.map((archive) => `<tr><td>${escapeHtml(archive.year_label)}</td><td>${fmt(archive.closed_at)}</td><td>${escapeHtml(archive.closed_by_name)}</td><td><button class="btn small secondary" data-keeper-archive="${escapeHtml(archive.id)}">Muat Turun JSON</button></td><td>${archive.year_label === year.year_label ? `<button class="btn small danger" data-finalize-year="${escapeHtml(archive.id)}">Padam Arkib dari Supabase & Buka Tahun Baharu</button>` : "Dibuang apabila kitaran baharu dibuka"}</td></tr>`).join("") || '<tr><td colspan="5">Tiada arkib sementara. Sediakan arkib di atas dahulu.</td></tr>'}</tbody></table></div></section>`;
       const rosterForm = $("#keeperRosterForm");
       $("#addKeeperRoster").addEventListener("click", () => {
         $("#newKeeperRosterRows").insertAdjacentHTML("beforeend", rowMarkup());
@@ -799,11 +801,21 @@ if (!configured) {
       });
       $("#keeperYearOpenForm").addEventListener("submit", async (event) => {
         event.preventDefault();
-        const fields = Object.fromEntries(new FormData(event.currentTarget));
-        if (prompt(`Tindakan ini akan menamatkan kitaran ${year.year_label}, mengarkibkan data dan membuka kitaran baharu.\nTaip TAMATKAN ${year.year_label} untuk mengesahkan:`) !== `TAMATKAN ${year.year_label}`) return;
-        const result = await api("keeper_year_open", fields);
-        if (result.ok) await loadStaff("keeper-roster");
-        showMessage($("#keeperYearResult"), result.message, result.ok);
+        const result = await api("keeper_year_archive_prepare");
+        if (!result.ok) {
+          showMessage($("#keeperYearResult"), result.message, false);
+          return;
+        }
+        const archive = result.archive;
+        const blob = new Blob([JSON.stringify(archive, null, 2)], { type: "application/json;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `arkib_garaj_basikal_${archive.year_label.replace(/[^A-Za-z0-9_-]/g, "_")}.json`;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        alert(`${result.message}\nSahkan fail arkib berada dalam peranti/lokasi simpanan sebelum langkah pemadaman.`);
+        await loadStaff("keeper-roster");
       });
       $$("[data-keeper-archive]").forEach((button) => button.addEventListener("click", async () => {
         const result = await api("keeper_archive_data", { archive_id: button.dataset.keeperArchive });
@@ -819,6 +831,20 @@ if (!configured) {
         link.download = `arkib_garaj_basikal_${archive.year_label.replace(/[^A-Za-z0-9_-]/g, "_")}.json`;
         link.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }));
+      $$("[data-finalize-year]").forEach((button) => button.addEventListener("click", async () => {
+        const yearLabel = $("#newKeeperYear").value.trim();
+        if (!yearLabel) {
+          alert("Isi nama kitaran baharu terlebih dahulu.");
+          return;
+        }
+        if (prompt(`Pastikan fail arkib JSON kitaran ${year.year_label} telah dimuat turun dan disimpan di luar Supabase. Tindakan ini memadam SEMUA arkib dalam Supabase, semua data operasi, dan semua akaun Penjaga; jadual, basikal, tetapan serta akaun Admin dikekalkan.\nTaip PADAM ARKIB ${year.year_label} untuk mengesahkan:`) !== `PADAM ARKIB ${year.year_label}`) return;
+        const result = await api("keeper_year_open", {
+          archive_id: button.dataset.finalizeYear,
+          year_label: yearLabel,
+        });
+        alert(result.message);
+        if (result.ok || result.rollover) await loadStaff("keeper-roster");
       }));
       return;
     }
