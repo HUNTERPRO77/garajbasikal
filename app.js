@@ -1,8 +1,14 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./supabase-config.js";
+import { decryptBackup, encryptBackup } from "./backup-crypto.mjs";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+const SYSTEM_BACKUP_TABLES = [
+  "app_settings", "bikes", "borrowers", "records", "group_loans", "group_loan_bikes",
+  "notes", "punishments", "audit_logs", "staff_profiles", "keeper_attendance",
+  "keeper_discipline", "keeper_year_settings", "keeper_roster", "keeper_year_archives",
+];
 let qrCodeModule;
 let attendanceClockInterval;
 async function generateBikeQr(bikeNo, garageQr, width) {
@@ -627,35 +633,74 @@ if (!configured) {
       return;
     }
     if (tab === "records") {
-      view.innerHTML = `<section class="section-card"><div class="card-head"><div><h2>Rekod Pinjaman</h2><p class="muted">Pemulangan manual hanya untuk penjaga/admin.</p></div>
+      view.innerHTML = `<section class="section-card"><div class="card-head"><div><h2>Rekod Pinjaman</h2><p class="muted">Semua rekod boleh dicari dan dibuka mengikut halaman. Pemulangan manual hanya untuk penjaga/admin.</p></div>
         ${staff.role === "admin" ? '<button id="exportExcel" class="btn primary">Eksport Excel</button>' : ""}</div>
         <div class="searchbar"><input id="recordSearch" placeholder="Cari matrik / nama / basikal"><select id="recordFilter"><option value="">Semua</option><option value="active">Sedang dipinjam</option><option value="late">Lewat</option><option value="done">Selesai</option></select><select id="sessionFilter"><option value="">Semua sesi</option><option>Sesi 1</option><option>Sesi 2</option></select><button id="refreshStaff" class="btn secondary">Segar</button></div>
-        <div class="table-wrap"><table id="recordsTable"><thead><tr><th>Tarikh</th><th>Matrik</th><th>Nama</th><th>Basikal</th><th>Sesi</th><th>Ambil</th><th>Hantar</th><th>Status</th><th>Catatan Lewat/Hukuman</th><th>Catatan Manual</th><th>Tindakan</th></tr></thead><tbody>
-        ${records.map((record) => `<tr data-search="${escapeHtml(`${record.matrix} ${record.name} ${record.bike_no}`.toLowerCase())}" data-status="${record.returned_at ? record.late ? "late" : "done" : "active"}" data-session="${escapeHtml(record.session_name)}">
-          <td>${fmt(record.borrowed_at)}</td><td><b>${escapeHtml(record.matrix)}</b></td><td>${escapeHtml(record.name)}</td><td>${escapeHtml(record.bike_no)}</td><td>${escapeHtml(record.session_name)}</td><td>${fmt(record.borrowed_at)}</td><td>${fmt(record.returned_at)}</td>
-          <td>${record.returned_at ? record.late ? '<span class="badge red">Lewat</span>' : '<span class="badge green">Selesai</span>' : '<span class="badge blue">Aktif</span>'} ${record.manual_return ? '<span class="badge gray">Manual</span>' : ""}</td>
-          <td>${returnException(record)}</td>
-          <td>${escapeHtml(record.manual_return_note || "-")}</td><td>${!record.returned_at && ["admin", "penjaga"].includes(staff.role) ? `<button class="btn small primary" data-manual-return="${record.id}">Hantar Manual</button>` : ""}</td></tr>`).join("")}
-        </tbody></table></div></section>
+        <p id="recordsPageInfo" class="muted" aria-live="polite">Memuatkan rekod...</p>
+        <div class="table-wrap"><table id="recordsTable"><thead><tr><th>Tarikh</th><th>Matrik</th><th>Nama</th><th>Basikal</th><th>Sesi</th><th>Ambil</th><th>Hantar</th><th>Status</th><th>Catatan Lewat/Hukuman</th><th>Catatan Manual</th><th>Tindakan</th></tr></thead><tbody></tbody></table></div>
+        <div class="pagination-controls"><button id="recordsPrevious" class="btn secondary" disabled>Sebelumnya</button><button id="recordsNext" class="btn secondary" disabled>Seterusnya</button></div></section>
         <section class="section-card"><h2>Pinjaman Berkumpulan</h2><p class="muted">Tiada sesi atau masa ambil/hantar direkodkan. Pemulangan boleh dibuat melalui QR atau oleh staf.</p>
         <div class="table-wrap"><table><thead><tr><th>Pensyarah</th><th>Kelas/Kelab</th><th>Jumlah</th><th>Basikal</th><th>Status</th><th>Catatan Pemulangan</th><th>Tindakan</th></tr></thead><tbody>
         ${groups.map((loan) => `<tr><td>${escapeHtml(loan.lecturer_name)}</td><td>${escapeHtml(loan.class_club)}</td><td>${loan.bike_count}</td><td>${escapeHtml(loan.bikes.join(", "))}</td>
           <td>${loan.is_active ? '<span class="badge blue">Aktif</span>' : '<span class="badge green">Selesai</span>'}</td><td>${escapeHtml(loan.return_note || "-")} ${loan.returned_by ? `<br>Oleh ${escapeHtml(loan.returned_by)}` : ""}</td>
           <td>${loan.is_active && ["admin", "penjaga"].includes(staff.role) ? `<button class="btn small primary" data-group-return="${loan.id}">Pulangkan Kumpulan</button>` : ""}</td></tr>`).join("")}</tbody></table></div></section>`;
-      $("#refreshStaff")?.addEventListener("click", loadStaff);
-      $("#recordSearch")?.addEventListener("input", filterRecords);
-      $("#recordFilter")?.addEventListener("input", filterRecords);
-      $("#sessionFilter")?.addEventListener("input", filterRecords);
+      let recordOffset = 0;
+      let recordRequest = 0;
+      let recordDebounce;
+      async function showRecordPage(offset) {
+        const requestId = ++recordRequest;
+        recordOffset = offset;
+        $("#recordsPageInfo").textContent = "Memuatkan rekod...";
+        $("#recordsPrevious").disabled = true;
+        $("#recordsNext").disabled = true;
+        try {
+          const result = await api("staff_records_page", {
+            offset,
+            limit: 100,
+            search: $("#recordSearch").value,
+            status: $("#recordFilter").value,
+            session: $("#sessionFilter").value,
+          });
+          if (requestId !== recordRequest) return;
+          if (!result.ok) {
+            $("#recordsPageInfo").textContent = result.message;
+            return;
+          }
+          if (offset > 0 && offset >= result.total) {
+            return showRecordPage(result.total ? Math.floor((result.total - 1) / 100) * 100 : 0);
+          }
+          const pageRecords = result.records;
+          $("#recordsTable tbody").innerHTML = pageRecords.map((record) => recordRowHtml(record, staff)).join("");
+          const from = result.total ? offset + 1 : 0;
+          const to = Math.min(offset + pageRecords.length, result.total);
+          $("#recordsPageInfo").textContent = `${from}–${to} daripada ${result.total} rekod`;
+          $("#recordsPrevious").disabled = offset === 0;
+          $("#recordsNext").disabled = offset + pageRecords.length >= result.total;
+          $$("[data-manual-return]").forEach((button) => button.addEventListener("click", async () => {
+            const note = prompt("Catatan pemulangan manual (wajib):", "Peminjam terlupa scan QR semasa menghantar basikal.");
+            if (!note) return;
+            const returned = await api("manual_return", { record_id: button.dataset.manualReturn, note });
+            alert(returned.message);
+            if (returned.ok) await showRecordPage(recordOffset);
+          }));
+        } catch (error) {
+          if (requestId === recordRequest) $("#recordsPageInfo").textContent = `Rekod tidak dapat dimuatkan: ${error.message}`;
+        }
+      }
+      $("#refreshStaff")?.addEventListener("click", () => showRecordPage(recordOffset));
+      const updateRecordFilters = () => {
+        clearTimeout(recordDebounce);
+        recordDebounce = setTimeout(() => showRecordPage(0), 250);
+      };
+      $("#recordSearch")?.addEventListener("input", updateRecordFilters);
+      $("#recordFilter")?.addEventListener("change", updateRecordFilters);
+      $("#sessionFilter")?.addEventListener("change", updateRecordFilters);
+      $("#recordsPrevious")?.addEventListener("click", () => showRecordPage(Math.max(0, recordOffset - 100)));
+      $("#recordsNext")?.addEventListener("click", () => showRecordPage(recordOffset + 100));
+      showRecordPage(0);
       $("#exportExcel")?.addEventListener("click", () => {
-        exportExcel(data).catch((error) => alert(`Eksport Excel gagal: ${error.message}`));
+        exportExcel().catch((error) => alert(`Eksport Excel gagal: ${error.message}`));
       });
-      $$("[data-manual-return]").forEach((button) => button.addEventListener("click", async () => {
-        const note = prompt("Catatan pemulangan manual (wajib):", "Peminjam terlupa scan QR semasa menghantar basikal.");
-        if (!note) return;
-        const result = await api("manual_return", { record_id: button.dataset.manualReturn, note });
-        alert(result.message);
-        if (result.ok) await loadStaff();
-      }));
       $$("[data-group-return]").forEach((button) => button.addEventListener("click", async () => {
         const note = prompt("Catatan pemulangan kumpulan (wajib):", "Semua basikal kumpulan telah dipulangkan.");
         if (!note) return;
@@ -763,7 +808,7 @@ if (!configured) {
         </form><div id="keeperRosterResult" aria-live="polite"></div></section>
         <section class="section-card"><h2>Tutup Sesi dan Buka Tahun Baharu</h2>
         <p class="muted">Kitaran bertugas semasa: <b>${escapeHtml(year.year_label)}</b>. Sediakan dan muat turun arkib dahulu. Selepas Admin mengesahkan fail sudah disimpan di luar Supabase, sistem mengosongkan arkib serta rekod operasi, memadam akaun Penjaga, dan membuka kitaran baharu. Akaun Admin, jadual (nama/peranan/hari tanpa pautan akaun), basikal dan tetapan sistem dikekalkan. Basikal yang sedang dipinjam ditetapkan tersedia. Pemadaman arkib membebaskan ruang storan pangkalan data.</p>
-        <form id="keeperYearOpenForm" class="grid2"><div><label for="newKeeperYear">Nama kitaran/tahun bertugas baharu</label><input id="newKeeperYear" name="year_label" value="${escapeHtml(suggestNextYear(year.year_label))}" maxlength="32" required></div><button class="btn primary" ${currentArchive ? "disabled" : ""}>${currentArchive ? "Arkib telah disediakan — muat turun di bawah" : "1. Sediakan & Muat Turun Arkib"}</button></form>
+        <form id="keeperYearOpenForm" class="grid2"><div><label for="newKeeperYear">Nama kitaran/tahun bertugas baharu</label><input id="newKeeperYear" name="year_label" value="${escapeHtml(suggestNextYear(year.year_label))}" maxlength="32" required></div><button class="btn primary">${currentArchive ? "1. Muat Turun / Kemas Kini Arkib" : "1. Sediakan & Muat Turun Arkib"}</button></form>
         ${currentArchive ? '<div class="alert info">Arkib kitaran semasa telah disediakan sementara. Muat turun fail dan pastikan ia disimpan sebelum menekan butang pemadaman di bawah.</div>' : ""}
         <div id="keeperYearResult" aria-live="polite"></div></section>
         <section class="section-card"><h2>Arkib Sementara / Arkib Lama</h2><p class="muted">Arkib yang disimpan sebelum ini turut dipadam daripada Supabase apabila kitaran baharu dibuka. Muat turun mana-mana fail lama yang mahu disimpan di luar sistem terlebih dahulu.</p><div class="table-wrap"><table><thead><tr><th>Sesi</th><th>Masa Arkib</th><th>Admin</th><th>Muat Turun</th><th>Tamatkan & Kosongkan</th></tr></thead><tbody>${data.keeper_year_archives.map((archive) => `<tr><td>${escapeHtml(archive.year_label)}</td><td>${fmt(archive.closed_at)}</td><td>${escapeHtml(archive.closed_by_name)}</td><td><button class="btn small secondary" data-keeper-archive="${escapeHtml(archive.id)}">Muat Turun JSON</button></td><td>${archive.year_label === year.year_label ? `<button class="btn small danger" data-finalize-year="${escapeHtml(archive.id)}">Padam Arkib dari Supabase & Buka Tahun Baharu</button>` : "Dibuang apabila kitaran baharu dibuka"}</td></tr>`).join("") || '<tr><td colspan="5">Tiada arkib sementara. Sediakan arkib di atas dahulu.</td></tr>'}</tbody></table></div></section>`;
@@ -877,7 +922,10 @@ if (!configured) {
           <label>Tempoh tahanan (hari)</label><input name="suspension_days" type="number" min="1" max="30" value="${s.suspension_days}" required>
           <label>Peringatan 10 minit</label><select name="warning_10min"><option value="true" ${s.warning_10min ? "selected" : ""}>Aktif</option><option value="false" ${!s.warning_10min ? "selected" : ""}>Tutup</option></select>
           <label>Peringatan 5 minit</label><select name="warning_5min"><option value="true" ${s.warning_5min ? "selected" : ""}>Aktif</option><option value="false" ${!s.warning_5min ? "selected" : ""}>Tutup</option></select></div>
-          <button class="btn primary">Simpan Tetapan</button></form><hr><h3>Tukar Kata Laluan</h3><form id="passwordForm" class="grid2"><div><label>Kata laluan baharu (12-72 aksara)</label><input type="password" name="new_password" minlength="12" maxlength="72" required autocomplete="new-password"></div><button class="btn primary">Tukar Kata Laluan</button></form><hr><button id="backupButton" class="btn secondary">Eksport rekod Excel (.xlsx)</button><p class="muted">Backup automatik dan pemulihan point-in-time tidak termasuk dalam Supabase Free; eksport Excel berkala disyorkan.</p></section>`;
+          <button class="btn primary">Simpan Tetapan</button></form><hr><h3>Tukar Kata Laluan</h3><form id="passwordForm" class="grid2"><div><label>Kata laluan baharu (12-72 aksara)</label><input type="password" name="new_password" minlength="12" maxlength="72" required autocomplete="new-password"></div><button class="btn primary">Tukar Kata Laluan</button></form><hr>
+          <h3>Sandaran dan pemulihan</h3><p class="muted">Fail sandaran mengandungi data sistem dan disulitkan pada peranti ini. Simpan fail serta kata laluannya di tempat selamat. Pemulihan hanya dibenarkan ke projek Supabase yang sama; akaun Auth/kata laluan tidak disandarkan, dan data yang merujuk akaun yang tiada mungkin dilangkau. Pemulihan menggabungkan data; tetapan/basikal sedia ada dengan ID sama boleh dikemas kini.</p>
+          <div class="row-actions"><button id="systemBackupButton" class="btn secondary">Muat turun sandaran disulitkan</button><button id="systemRestoreButton" class="btn secondary">Pulihkan sandaran</button><button id="backupButton" class="btn primary">Eksport rekod Excel (.xlsx)</button></div>
+          <input id="systemBackupFile" type="file" accept=".json,application/json" hidden><p id="systemBackupStatus" class="muted" aria-live="polite"></p></section>`;
       $("#settingsForm").addEventListener("submit", async (event) => {
         event.preventDefault();
         const form = new FormData(event.currentTarget);
@@ -909,7 +957,67 @@ if (!configured) {
         if (!error) event.currentTarget.reset();
       });
       $("#backupButton").addEventListener("click", () => {
-        exportExcel(data).catch((error) => alert(`Eksport Excel gagal: ${error.message}`));
+        exportExcel().catch((error) => alert(`Eksport Excel gagal: ${error.message}`));
+      });
+      const backupStatus = $("#systemBackupStatus");
+      const backupButton = $("#systemBackupButton");
+      const restoreButton = $("#systemRestoreButton");
+      const backupFile = $("#systemBackupFile");
+      backupButton.addEventListener("click", async () => {
+        const password = prompt("Tetapkan kata laluan sandaran (sekurang-kurangnya 12 aksara). Simpan kata laluan ini berasingan; ia tidak boleh dipulihkan.");
+        if (password === null) return;
+        if (password.length < 12 || password.length > 256) {
+          alert("Kata laluan sandaran mesti antara 12 hingga 256 aksara.");
+          return;
+        }
+        if (prompt("Masukkan semula kata laluan sandaran untuk pengesahan.") !== password) {
+          alert("Kata laluan tidak sepadan.");
+          return;
+        }
+        backupButton.disabled = true;
+        backupStatus.textContent = "Mengumpul dan menyulitkan sandaran...";
+        try {
+          await downloadSystemBackup(password);
+          backupStatus.textContent = "Sandaran disulitkan berjaya dimuat turun. Pastikan fail dan kata laluan disimpan dengan selamat.";
+        } catch (error) {
+          backupStatus.textContent = `Sandaran gagal: ${error.message}`;
+        } finally {
+          backupButton.disabled = false;
+        }
+      });
+      restoreButton.addEventListener("click", () => backupFile.click());
+      backupFile.addEventListener("change", async () => {
+        const file = backupFile.files?.[0];
+        backupFile.value = "";
+        if (!file) return;
+        if (file.size > 110 * 1024 * 1024) {
+          backupStatus.textContent = "Fail sandaran terlalu besar (had 110 MB).";
+          return;
+        }
+        const password = prompt("Masukkan kata laluan untuk membuka sandaran.");
+        if (password === null) return;
+        restoreButton.disabled = true;
+        backupStatus.textContent = "Mengesahkan dan membuka sandaran...";
+        try {
+          const envelope = JSON.parse(await file.text());
+          const backup = await decryptBackup(envelope, password);
+          validateSystemBackup(backup);
+          const projectRef = new URL(SUPABASE_URL).hostname.split(".")[0];
+          if (backup.project_ref !== projectRef) {
+            throw new Error("Sandaran ini milik projek Supabase lain. Pemulihan rentas projek tidak dibenarkan.");
+          }
+          const totalRows = SYSTEM_BACKUP_TABLES.reduce((sum, table) => sum + backup.tables[table].length, 0);
+          const typedConfirmation = `PULIHKAN ${totalRows}`;
+          if (prompt(`Pemulihan akan menggabungkan ${totalRows} rekod ke projek ini, mengemas kini tetapan dan status basikal dengan ID sama, serta tidak boleh dibatalkan. Akaun Auth dan kata laluan tidak dipulihkan. Taip ${typedConfirmation} untuk meneruskan:`) !== typedConfirmation) {
+            backupStatus.textContent = "Pemulihan dibatalkan.";
+            return;
+          }
+          await restoreSystemBackup(backup, backupStatus);
+        } catch (error) {
+          backupStatus.textContent = `Pemulihan gagal: ${error.message}`;
+        } finally {
+          restoreButton.disabled = false;
+        }
       });
     }
   }
@@ -990,32 +1098,52 @@ if (!configured) {
     return record.warning_issued ? "Amaran lewat direkodkan" : "-";
   }
 
-  function filterRecords() {
-    const query = ($("#recordSearch")?.value || "").toLowerCase();
-    const status = $("#recordFilter")?.value || "";
-    const session = $("#sessionFilter")?.value || "";
-    $$("#recordsTable tbody tr").forEach((row) => {
-      row.hidden = !!((query && !row.dataset.search.includes(query)) ||
-        (status && row.dataset.status !== status) || (session && row.dataset.session !== session));
-    });
+  function recordRowHtml(record, staff) {
+    const status = record.returned_at ? record.late ? '<span class="badge red">Lewat</span>' :
+      '<span class="badge green">Selesai</span>' : '<span class="badge blue">Aktif</span>';
+    return `<tr><td>${fmt(record.borrowed_at)}</td><td><b>${escapeHtml(record.matrix)}</b></td><td>${escapeHtml(record.name)}</td><td>${escapeHtml(record.bike_no)}</td><td>${escapeHtml(record.session_name)}</td><td>${fmt(record.borrowed_at)}</td><td>${fmt(record.returned_at)}</td>
+      <td>${status} ${record.manual_return ? '<span class="badge gray">Manual</span>' : ""}</td>
+      <td>${returnException(record)}</td><td>${escapeHtml(record.manual_return_note || "-")}</td>
+      <td>${!record.returned_at && ["admin", "penjaga"].includes(staff.role) ? `<button class="btn small primary" data-manual-return="${record.id}">Hantar Manual</button>` : ""}</td></tr>`;
   }
 
-  async function exportExcel(data) {
+  async function getCompleteExportData() {
+    const resultData = { records: [], groups: [] };
+    let offset = 0;
+    let recordsTotal = null;
+    let groupsTotal = null;
+    do {
+      const page = await api("staff_export", { offset, limit: 250 });
+      if (!page.ok) throw new Error(page.message || "Tidak dapat memuat halaman eksport.");
+      recordsTotal ??= page.records_total;
+      groupsTotal ??= page.groups_total;
+      if (page.records_total !== recordsTotal || page.groups_total !== groupsTotal) {
+        throw new Error("Jumlah rekod berubah semasa eksport. Cuba eksport semula.");
+      }
+      resultData.records.push(...page.records);
+      resultData.groups.push(...page.groups);
+      offset += 250;
+    } while (offset < recordsTotal || offset < groupsTotal);
+    return resultData;
+  }
+
+  async function exportExcel() {
+    const completeData = await getCompleteExportData();
     const XLSX = (await import("https://esm.sh/xlsx-js-style@1.2.0")).default;
     const headers = ["Jenis", "ID", "Nama / Pensyarah", "Kelas / Kelab", "No. Matrik", "Basikal",
       "Sesi", "Tarikh Ambil", "Tarikh Hantar", "Status", "Catatan", "Catatan Lewat / Hukuman"];
     const rows = [
-      ...data.records.map((record) => ["Individu", record.id, record.name, "", record.matrix, record.bike_no,
+      ...completeData.records.map((record) => ["Individu", record.id, record.name, "", record.matrix, record.bike_no,
         record.session_name, fmt(record.borrowed_at), fmt(record.returned_at),
         record.returned_at ? record.late ? "Lewat" : "Selesai" : "Aktif",
         record.manual_return_note || "", returnException(record)]),
-      ...data.group_loans.map((loan) => ["Berkumpulan", loan.id, loan.lecturer_name, loan.class_club, "",
-        data.group_loan_bikes.filter((bike) => bike.group_loan_id === loan.id).map((bike) => bike.bike_no).join(", "),
+      ...completeData.groups.map((loan) => ["Berkumpulan", loan.id, loan.lecturer_name, loan.class_club, "",
+        (loan.group_loan_bikes || []).map((bike) => bike.bike_no).join(", "),
         "Luar sesi", "-", "-", loan.is_active ? "Aktif" : "Selesai", loan.return_note || "", "-"]),
     ];
-    const lateCount = data.records.filter((record) => record.late).length;
-    const activeCount = data.records.filter((record) => !record.returned_at).length +
-      data.group_loans.filter((loan) => loan.is_active).length;
+    const lateCount = completeData.records.filter((record) => record.late).length;
+    const activeCount = completeData.records.filter((record) => !record.returned_at).length +
+      completeData.groups.filter((loan) => loan.is_active).length;
     const exportedAt = fmt(new Date().toISOString());
     const sheet = XLSX.utils.aoa_to_sheet([
       ["REKOD PINJAMAN BASIKAL"],
@@ -1096,6 +1224,92 @@ if (!configured) {
     link.download = `rekod_garaj_basikal_${date}.xlsx`;
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function validateSystemBackup(backup) {
+    if (!backup || backup.format !== "garaj-basikal-system-backup" || backup.version !== 1 ||
+      typeof backup.project_ref !== "string" || !backup.tables || typeof backup.tables !== "object") {
+      throw new Error("Kandungan fail bukan sandaran sistem yang disokong.");
+    }
+    const tableNames = Object.keys(backup.tables).sort();
+    const expectedNames = [...SYSTEM_BACKUP_TABLES].sort();
+    if (tableNames.length !== expectedNames.length ||
+      tableNames.some((name, index) => name !== expectedNames[index]) ||
+      SYSTEM_BACKUP_TABLES.some((table) => !Array.isArray(backup.tables[table]))) {
+      throw new Error("Struktur jadual dalam sandaran tidak lengkap atau tidak sah.");
+    }
+  }
+
+  async function downloadSystemBackup(password) {
+    const tables = {};
+    let projectRef = "";
+    for (const table of SYSTEM_BACKUP_TABLES) {
+      const rows = [];
+      let offset = 0;
+      let total = null;
+      do {
+        const page = await api("system_backup_page", { table, offset, limit: 200 });
+        if (!page.ok) throw new Error(page.message || `Jadual ${table} tidak dapat disandarkan.`);
+        if (total === null) {
+          total = page.total;
+          projectRef = projectRef || page.project_ref;
+        }
+        if (page.total !== total || page.project_ref !== projectRef) {
+          throw new Error(`Data jadual ${table} berubah semasa sandaran. Cuba semula.`);
+        }
+        rows.push(...page.rows);
+        offset += 200;
+      } while (offset < total);
+      tables[table] = rows;
+    }
+    const backup = {
+      format: "garaj-basikal-system-backup",
+      version: 1,
+      created_at: new Date().toISOString(),
+      project_ref: projectRef,
+      tables,
+    };
+    const plaintext = JSON.stringify(backup);
+    if (new TextEncoder().encode(plaintext).byteLength > 45 * 1024 * 1024) {
+      throw new Error("Sandaran melebihi had 45 MiB untuk penyulitan dalam pelayar. Eksport Excel rekod boleh digunakan untuk data pinjaman.");
+    }
+    const envelope = await encryptBackup(backup, password);
+    const date = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(new Date());
+    const blob = new Blob([JSON.stringify(envelope)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `sandaran_garaj_basikal_${date}.encrypted.json`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  async function restoreSystemBackup(backup, status) {
+    let restoredTotal = 0;
+    let requestedTotal = 0;
+    for (const table of SYSTEM_BACKUP_TABLES) {
+      const rows = backup.tables[table];
+      requestedTotal += rows.length;
+      for (let offset = 0; offset < rows.length; offset += 100) {
+        status.textContent = `Memulihkan ${table}: ${Math.min(offset + 100, rows.length)} daripada ${rows.length} rekod...`;
+        let result;
+        try {
+          result = await api("system_backup_restore_rows", {
+            table,
+            project_ref: backup.project_ref,
+            rows: rows.slice(offset, offset + 100),
+          });
+        } catch (error) {
+          throw new Error(`Sambungan terputus semasa memulihkan ${table}; sekurang-kurangnya ${restoredTotal} rekod telah dipulihkan. ${error.message}`);
+        }
+        if (!result.ok) throw new Error(`${result.message || `Pemulihan jadual ${table} gagal.`} Sekurang-kurangnya ${restoredTotal} rekod telah dipulihkan.`);
+        restoredTotal += Number(result.restored?.inserted || 0);
+      }
+    }
+    const skipped = requestedTotal - restoredTotal;
+    status.textContent = `Pemulihan selesai: ${restoredTotal} rekod dipulihkan${skipped ? `; ${skipped} rekod tidak dimasukkan kerana pendua atau rujukan akaun/data tiada` : ""}. Muat semula paparan untuk melihat perubahan.`;
   }
 
   async function loadStaff(initialTab = "records") {

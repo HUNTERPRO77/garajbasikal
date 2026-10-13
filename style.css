@@ -55,6 +55,8 @@ th{background:#f7f9fc}
 .gray{background:#edf0f4;color:#5b6678}
 .small{padding:8px 11px;font-size:12px}
 .searchbar{display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px}
+.pagination-controls,.row-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin:12px 0}
+.row-actions{justify-content:flex-start}
 .mini-list{display:grid;gap:8px}
 .mini-row{display:flex;justify-content:space-between;padding:10px 12px;background:#f8fafc;border-radius:10px;gap:14px}
 .qr-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
