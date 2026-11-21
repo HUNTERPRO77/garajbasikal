@@ -10,6 +10,7 @@ const SYSTEM_BACKUP_TABLES = [
   "keeper_discipline", "keeper_year_settings", "keeper_roster", "keeper_year_archives",
 ];
 const PUBLIC_SITE_URL = "https://hunterpro77.github.io/garajbasikal/";
+const QR_CACHE_BUSTER = "github-pages-20261121";
 let qrCodeModule;
 let attendanceClockInterval;
 async function generateBikeQr(bikeNo, garageQr, width) {
@@ -18,6 +19,7 @@ async function generateBikeQr(bikeNo, garageQr, width) {
   const QRCode = await qrCodeModule;
   const qrUrl = new URL(PUBLIC_SITE_URL);
   qrUrl.searchParams.set("garage", garageQr);
+  qrUrl.searchParams.set("qr", QR_CACHE_BUSTER);
   qrUrl.searchParams.set("bike", bikeNo);
   return QRCode.toDataURL(qrUrl.toString(), { width, margin: 2 });
 }
@@ -543,7 +545,7 @@ if (!configured) {
           <div class="mini-row"><span>Basikal</span><b>${data.bikes.filter((b) => b.status === "available").length} tersedia / ${data.bikes.filter((b) => b.status === "borrowed").length} dipinjam / ${data.bikes.filter((b) => b.status === "damaged").length} rosak</b></div>
           <div class="mini-row"><span>Kapasiti Sesi 1</span><b>${records.filter((r) => r.session_name === "Sesi 1" && !r.returned_at).length}/${setting.session_capacity}</b></div>
           <div class="mini-row"><span>Kapasiti Sesi 2</span><b>${records.filter((r) => r.session_name === "Sesi 2" && !r.returned_at).length}/${setting.session_capacity}</b></div>
-        </div><div><h3>QR</h3><img src="qr-placeholder.svg" data-qr-src="qr_garaj_basikal_github.png" width="160" alt="QR garaj"><img src="qr-placeholder.svg" data-qr-src="qr_pinjaman_berkumpulan.png" width="160" alt="QR pinjaman berkumpulan"></div></div></section>
+        </div><div><h3>QR</h3><img src="qr-placeholder.svg" data-qr-src="qr_garaj_basikal_github_20261121.png" width="160" alt="QR garaj"><img src="qr-placeholder.svg" data-qr-src="qr_pinjaman_berkumpulan_20261121.png" width="160" alt="QR pinjaman berkumpulan"></div></div></section>
         <section class="section-card"><h2>Tambah Akaun Staf</h2><p class="muted">Akaun menggunakan username dan kata laluan sahaja. Admin memberikan kata laluan awal secara peribadi dan boleh menetapkan semula kata laluan.</p>
           <form id="staffCreateForm" class="grid2"><div><label>Username</label><input name="username" required minlength="3" maxlength="32" pattern="[A-Za-z0-9][A-Za-z0-9._-]{2,31}" autocomplete="off"></div><div><label>Nama paparan</label><input name="display_name" required maxlength="100"></div>
           <div><label>Peranan</label><select name="role"><option value="penjaga">Penjaga</option><option value="admin">Admin</option></select></div><div><label>Kata laluan awal (12-72 aksara)</label><input name="password" type="password" required minlength="12" maxlength="72" autocomplete="new-password"></div>
