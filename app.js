@@ -918,7 +918,7 @@ if (!configured) {
           <label>Sesi 1 tamat (AM/PM)</label><input name="session1_end" type="text" value="${escapeHtml(formatClock(s.session1_end))}" placeholder="6:00 PM" inputmode="text" pattern="(1[0-2]|0?[1-9]):[0-5][0-9]\\s*(AM|PM|am|pm)" required>
           <label>Sesi 2 mula (AM/PM)</label><input name="session2_start" type="text" value="${escapeHtml(formatClock(s.session2_start))}" placeholder="6:05 PM" inputmode="text" pattern="(1[0-2]|0?[1-9]):[0-5][0-9]\\s*(AM|PM|am|pm)" required>
           <label>Sesi 2 tamat (AM/PM)</label><input name="session2_end" type="text" value="${escapeHtml(formatClock(s.session2_end))}" placeholder="6:50 PM" inputmode="text" pattern="(1[0-2]|0?[1-9]):[0-5][0-9]\\s*(AM|PM|am|pm)" required></div>
-        <div><label>Kapasiti sesi</label><input name="session_capacity" type="number" min="1" max="28" value="${s.session_capacity}" required>
+        <div><label>Kapasiti sesi</label><input name="session_capacity" type="number" min="1" max="30" value="${s.session_capacity}" required>
           <label>Tempoh tahanan (hari)</label><input name="suspension_days" type="number" min="1" max="30" value="${s.suspension_days}" required>
           <label>Peringatan 10 minit</label><select name="warning_10min"><option value="true" ${s.warning_10min ? "selected" : ""}>Aktif</option><option value="false" ${!s.warning_10min ? "selected" : ""}>Tutup</option></select>
           <label>Peringatan 5 minit</label><select name="warning_5min"><option value="true" ${s.warning_5min ? "selected" : ""}>Aktif</option><option value="false" ${!s.warning_5min ? "selected" : ""}>Tutup</option></select></div>
